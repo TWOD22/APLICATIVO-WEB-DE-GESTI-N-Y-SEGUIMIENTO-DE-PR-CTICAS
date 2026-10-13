@@ -1,0 +1,39 @@
+/* Estilos globales: paleta de colores (variables CSS), tipografía y utilidades básicas (accesibilidad, texto secundario, iconos). */
+:root {
+  --navy: #0b2c48;
+  --navy-light: #123b5d;
+  --blue: #218be0;
+  --blue-dark: #1177ca;
+  --blue-soft: #eaf5ff;
+  --ink: #0b2239;
+  --muted: #647b95;
+  --line: #dce5ee;
+  --surface: #fff;
+  --background: #f4f7fa;
+  --green: #00a976;
+  --green-soft: #dff8ee;
+  --orange: #ed8b00;
+  --orange-soft: #fff4d8;
+  --red: #e94d58;
+  --red-soft: #ffeaec;
+  --purple: #7868d8;
+  --radius: 14px;
+  --shadow: 0 1px 2px rgba(11, 44, 72, .07), 0 8px 24px rgba(11, 44, 72, .05);
+  color: var(--ink);
+  background: var(--background);
+  font-family: Inter, "Segoe UI", Arial, sans-serif;
+  font-synthesis: none;
+}
+
+* { box-sizing: border-box; }
+html { min-width: 320px; min-height: 100%; }
+body { min-height: 100vh; margin: 0; background: var(--background); }
+button, input, select, textarea { font: inherit; }
+button, select { cursor: pointer; }
+a { color: inherit; }
+button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible, a:focus-visible { outline: 3px solid rgba(33, 139, 224, .25); outline-offset: 2px; }
+h1, h2, h3, h4, p { margin-top: 0; }
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+.eyebrow { color: var(--blue-dark); text-transform: uppercase; letter-spacing: .11em; font-size: 10px; font-weight: 800; }
+.muted { color: var(--muted); }
+.icon { display: inline-block; width: 20px; height: 20px; flex: none; vertical-align: middle; }

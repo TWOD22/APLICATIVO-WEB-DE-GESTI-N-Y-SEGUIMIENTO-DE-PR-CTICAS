@@ -1,0 +1,37 @@
+{
+  "name": "sistema-practicas-udi-backend",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "main": "src/server.js",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "node --watch-path=./src src/server.js",
+    "start": "node src/server.js",
+    "test": "node --import ./tests/setup.js --test --test-concurrency=1 \"tests/**/*.test.js\"",
+    "test:unit": "node --import ./tests/setup.js --test --test-concurrency=1 \"tests/unit/**/*.test.js\"",
+    "test:integration": "node --import ./tests/setup.js --test --test-concurrency=1 \"tests/integration/**/*.test.js\"",
+    "migrate:up": "node-pg-migrate up -m src/database/migrations",
+    "migrate:down": "node-pg-migrate down -m src/database/migrations",
+    "migrate:create": "node-pg-migrate create -m src/database/migrations --migration-file-language sql",
+    "probar:login": "node scripts/probar-login.mjs",
+    "probar:storage": "node scripts/probar-storage.mjs",
+    "cuestionario:ejemplo": "node scripts/cuestionario-ejemplo.mjs",
+    "seed": "node src/database/seeds/run.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "express-rate-limit": "^7.5.0",
+    "firebase-admin": "^13.0.2",
+    "helmet": "^8.0.0",
+    "node-pg-migrate": "^7.9.1",
+    "pg": "^8.13.1",
+    "pino": "^9.6.0",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {}
+}

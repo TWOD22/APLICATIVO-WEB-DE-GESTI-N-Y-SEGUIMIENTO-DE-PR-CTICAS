@@ -1,0 +1,10 @@
+{
+  "description": "Streamline university internship management with a comprehensive platform for students, advisors, and administrators to track progress, submit documents, and evaluate performance.",
+  "robots": {
+    "index": false
+  },
+  "accessibility": {
+    "addBypassLinks": false,
+    "ignoreReducedMotion": false
+  }
+}

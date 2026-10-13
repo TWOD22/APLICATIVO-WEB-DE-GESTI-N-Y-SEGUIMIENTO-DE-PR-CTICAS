@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <!-- figma:head-start -->
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="Plataforma de Gestión de Prácticas Universitarias UDI" />
+    <title>Ingreso · Prácticas Pedagógicas UDI</title>
+    <link rel="stylesheet" href="/frontend/assets/css/global.css" />
+    <link rel="stylesheet" href="/frontend/assets/css/components.css" />
+    <!-- figma:head-end -->
+  </head>
+  <body class="login-page">
+    <!-- figma:body-start -->
+    <aside class="login-visual" aria-label="Presentación institucional">
+      <a class="login-brand" href="/" aria-label="UDI Prácticas Pedagógicas">
+        <span class="brand-mark">U</span>
+        <span><strong>UDI</strong><small>Universidad de Investigación y Desarrollo</small></span>
+      </a>
+      <div class="login-message">
+        <span class="eyebrow">Prácticas pedagógicas</span>
+        <h1>Formamos docentes que transforman realidades.</h1>
+        <p>Un espacio para acompañar, documentar y fortalecer cada etapa de tu práctica universitaria.</p>
+        <div class="visual-stats"><span><strong>8</strong><small>Niveles de práctica</small></span><span><strong>32</strong><small>Instituciones aliadas</small></span></div>
+      </div>
+      <small>© 2026 UDI · Sistema de Gestión de Prácticas</small>
+    </aside>
+    <main class="login-form-wrap" id="main-content">
+      <form class="login-card" id="login-form">
+        <img src="/frontend/assets/img/logo-udi.png" alt="Universidad de Investigación y Desarrollo" />
+        <header><span class="eyebrow">Bienvenido de nuevo</span><h2>Ingresa a tu cuenta</h2><p>Usa tus credenciales institucionales para continuar.</p></header>
+        <label class="field"><span>Correo institucional</span><input name="email" type="email" required autocomplete="email" placeholder="nombre@udi.edu.co" /></label>
+        <label class="field"><span>Contraseña</span><input name="password" type="password" required autocomplete="current-password" /></label>
+        <p class="form-error" id="login-error" role="alert" hidden></p>
+        <button class="btn btn-primary btn-block" type="submit">Ingresar al sistema <span aria-hidden="true">→</span></button>
+        <button class="btn-link" type="button" id="forgot-password">¿Olvidaste tu contraseña?</button>
+        <p class="secure-note">Acceso protegido con Firebase Authentication</p>
+      </form>
+      <section class="login-card" id="role-picker" hidden aria-labelledby="role-picker-title">
+        <img src="/frontend/assets/img/logo-udi.png" alt="Universidad de Investigación y Desarrollo" />
+        <header><span class="eyebrow">Hola, <span data-nombre></span></span><h2 id="role-picker-title">¿Con qué perfil quieres trabajar?</h2><p>Tu cuenta tiene más de un rol. Puedes cambiar de perfil después desde el menú.</p></header>
+        <div class="role-options" data-opciones></div>
+        <p class="form-error" data-error role="alert"></p>
+        <button class="btn-link" type="button" id="role-picker-back">Usar otra cuenta</button>
+      </section>
+    </main>
+    <script type="module" src="/frontend/assets/js/controllers/loginController.js"></script>
+    <!-- figma:body-end -->
+  </body>
+</html>
