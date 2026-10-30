@@ -1,0 +1,23 @@
+{
+  "name": "servicio-notificaciones-auditoria-udi",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Segundo servicio (quanta 2) del Sistema de Gestión de Prácticas UDI: recibe eventos del servicio principal y guarda notificaciones y auditoría en su propia base.",
+  "type": "module",
+  "main": "src/server.js",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "node --watch-path=./src src/server.js",
+    "start": "node src/server.js",
+    "test": "node --import ./tests/setup.js --test --test-concurrency=1 \"tests/**/*.test.js\"",
+    "prueba": "node scripts/prueba-real.js"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "firebase-admin": "^13.0.2",
+    "zod": "^3.24.1"
+  }
+}

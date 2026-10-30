@@ -169,7 +169,7 @@ const armarAsignacion = (f) => ({
   estado: f.estado,
   periodo: { id: f.periodo_id, codigo: f.periodo_codigo },
   nivel: { id: f.nivel_id, codigo: f.nivel_codigo, nombre: f.nivel_nombre },
-  institucion: { id: f.institucion_id, nombre: f.institucion_nombre },
+  institucion: f.institucion_id ? { id: f.institucion_id, nombre: f.institucion_nombre } : null,
   estudiante: { id: f.estudiante_id, nombre_completo: `${f.estudiante_nombres} ${f.estudiante_apellidos}`, documento: f.estudiante_documento },
   docente: f.docente_id ? { id: f.docente_id, nombre_completo: `${f.docente_nombres} ${f.docente_apellidos}` } : null,
   asesor: f.asesor_id ? { id: f.asesor_id, nombre_completo: `${f.asesor_nombres} ${f.asesor_apellidos}` } : null,

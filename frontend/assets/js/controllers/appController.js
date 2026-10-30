@@ -11,8 +11,15 @@ import { api } from "../services/api.js";
 // Módulos que implementan cada pantalla (reciben las utilidades que necesitan como parámetro).
 import { montarUsuarios } from "./usuariosAdmin.js";
 import { montarInstituciones } from "./institucionesAdmin.js";
-import { montarAsignaciones } from "./asignacionesAdmin.js";
+import { cancelarPractica, ESTADOS_EDITABLES, reasignarPractica } from "./accionesPractica.js";
 import { montarDocumentosEstudiante } from "./documentosEstudiante.js";
+import { montarMiPractica } from "./miPracticaEstudiante.js";
+import { montarGuiaCriterios } from "./guiaCriterios.js";
+import { montarSolicitudes } from "./solicitudesDirector.js";
+import { montarDocentesNivel } from "./docentesNivelAdmin.js";
+import { montarPeriodos } from "./periodosAdmin.js";
+import { montarReportes } from "./reportesAdmin.js";
+import { montarRequisitos } from "./requisitosAdmin.js";
 import { montarBitacoraEstudiante } from "./bitacoraEstudiante.js";
 import { montarDashboardEvaluador, montarEvaluacion } from "./evaluadorAdmin.js";
 import { montarAuditoria } from "./auditoriaAdmin.js";
@@ -20,9 +27,10 @@ import { montarNotificaciones } from "./notificaciones.js";
 import { montarCuenta } from "./cuenta.js";
 import { montarPerfilInstitucion } from "./institucionPerfil.js";
 import { montarCuestionarios } from "./cuestionariosAdmin.js";
+import { montarGrupoDocente } from "./grupoDocente.js";
 import { montarPerfilUsuario, montarPracticaDirector } from "./perfilesAdmin.js";
 // Manejo de sesión y roles.
-import { cerrarSesion, elegirRol, NOMBRE_DE_ROL, PAGINA_DE_ROL, requerirSesion, ROL_DE_PAGINA } from "../services/session.js";
+import { cerrarSesion, NOMBRE_DE_ROL, requerirSesion } from "../services/session.js";
 
 // Rol y vista de la página actual (vienen de los atributos data- del <body>).
 const role = document.body.dataset.role;
@@ -38,24 +46,29 @@ const config = {
     name: "Mariana Vargas", initials: "MV", subtitle: "Directora de Programa",
     menu: [
       ["dashboard", "Vista general"],
+      ["solicitudes", "Solicitudes"],
+      ["seguimiento", "Seguimiento de prácticas"],
       ["usuarios", "Gestión de Usuarios y Instituciones"],
       ["plantillas", "Cuestionarios"],
-      ["asignaciones", "Asignaciones"],
-      ["auditoria", "Auditoría documental"],
+      ["docentes", "Docentes por nivel"],
+      ["requisitos", "Documentos requeridos"],
+      ["periodos", "Periodos académicos"],
+      ["reportes", "Reportes"],
+      ["auditoria", "Expedientes"],
       ["cuenta", "Mi cuenta"],
     ],
   },
   estudiante: {
     name: "Laura Gómez", initials: "LG", subtitle: "Lic. Educación Infantil · 3°",
-    menu: [["dashboard", "Mi práctica"], ["documentos", "Documentos legales"], ["bitacora", "Bitácora"], ["cuenta", "Mi cuenta"]],
+    menu: [["dashboard", "Mi práctica"], ["bitacora", "Bitácora"], ["cuenta", "Mi cuenta"]],
   },
   asesor: {
     name: "María Ríos", initials: "MR", subtitle: "Asesora · I.E. San José",
-    menu: [["dashboard", "Mis practicantes"], ["evaluacion", "Evaluación"], ["cuenta", "Mi cuenta"]],
+    menu: [["dashboard", "Mis practicantes"], ["cuenta", "Mi cuenta"]],
   },
   docente: {
     name: "Juan Suárez", initials: "JS", subtitle: "Docente · Matemáticas",
-    menu: [["dashboard", "Mis tutorías"], ["evaluacion", "Evaluación académica"], ["cuenta", "Mi cuenta"]],
+    menu: [["dashboard", "Mis tutorías"], ["grupo", "Mi grupo de práctica"], ["cuenta", "Mi cuenta"]],
   },
 };
 
@@ -74,11 +87,13 @@ const folders = { director: "director", estudiante: "estudiante", asesor: "aseso
 function icon(name) {
   const paths = {
     menu: '<path d="M4 6h16M4 12h16M4 18h16"/>',
+    inbox: '<path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.5 5.1 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.5-6.9A2 2 0 0 0 16.7 4H7.3a2 2 0 0 0-1.8 1.1z"/>',
     grid: '<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>',
     users: '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/>',
     file: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M8 13h8M8 17h6"/>',
     edit: '<path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L8 18l-4 1 1-4z"/>',
     check: '<path d="m5 12 4 4L19 6"/>',
+    calendar: '<rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/>',
     building: '<path d="M3 21h18M6 21V3h12v18M9 7h2M13 7h2M9 11h2M13 11h2"/>',
     shield: '<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/>',
     clipboard: '<path d="M9 5H6a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-3"/><rect x="9" y="2" width="6" height="5" rx="2"/>',
@@ -104,17 +119,20 @@ function pathFor(targetRole, targetView) {
 function shell(content, title) {
   const profile = config[role];
   const iconNames = role === "estudiante" ? ["grid", "file", "edit", "settings"] : ["grid", "users", "clipboard", "edit", "shield", "settings"];
+  // Docente y asesor: el ícono también se elige por nombre de vista.
+  const iconosEvaluador = { dashboard: "grid", grupo: "users", evaluacion: "clipboard", cuenta: "settings" };
+  // El menú del Director tiene más opciones: su ícono se elige por nombre de vista y no por posición.
+  const iconosDirector = { dashboard: "grid", solicitudes: "inbox", seguimiento: "eye", usuarios: "users", plantillas: "clipboard", asignaciones: "edit", docentes: "users", periodos: "calendar", reportes: "file", requisitos: "check", auditoria: "shield", cuenta: "settings" };
   document.querySelector("#app").innerHTML = `
     <div class="app-shell">
       <button class="sidebar-backdrop" hidden aria-label="Cerrar menú"></button>
       <aside class="sidebar">
         <a class="brand" href="${pathFor(role, "dashboard")}"><span class="brand-mark">U</span><span><strong>UDI</strong><small>Prácticas Pedagógicas</small></span><button class="sidebar-close" type="button" aria-label="Cerrar">×</button></a>
-        ${session.roles.length > 1 ? `<div class="role-preview"><label for="role-switch">Perfil activo</label><select id="role-switch">${session.roles.map(({ codigo }) => `<option value="${PAGINA_DE_ROL[codigo]}" ${PAGINA_DE_ROL[codigo] === role ? "selected" : ""}>${NOMBRE_DE_ROL[PAGINA_DE_ROL[codigo]]}</option>`).join("")}</select></div>` : ""}
-        <nav class="main-nav"><span class="nav-eyebrow">Panel de ${role}</span>${profile.menu.map(([id, text], index) => `<a class="${view === id ? "active" : ""}" href="${pathFor(role, id)}">${icon(iconNames[index] || "grid")}<span>${text}</span></a>`).join("")}</nav>
+        <nav class="main-nav"><span class="nav-eyebrow">Panel de ${role}</span>${profile.menu.map(([id, text], index) => `<a class="${view === id ? "active" : ""}" href="${pathFor(role, id)}">${icon((role === "director" ? iconosDirector[id] : (role === "docente" || role === "asesor") ? iconosEvaluador[id] : iconNames[index]) || "grid")}<span>${text}</span></a>`).join("")}</nav>
         <footer class="sidebar-profile"><div class="profile-line"><span class="avatar">${profile.initials}</span><span><strong>${profile.name}</strong><small>${profile.subtitle}</small></span></div><button class="logout" type="button">Cerrar sesión</button></footer>
       </aside>
       <div class="main-shell">
-        <header class="topbar"><button class="mobile-menu" type="button" aria-label="Abrir menú">${icon("menu")}</button><div><h1>${title}</h1><p>${labels[role]}${role === "director" && view === "dashboard" ? " · Vista ejecutiva" : " · Periodo académico 2026-II"}</p></div><div class="top-actions"><div data-bell></div>${role === "director" && view === "dashboard" ? '<label class="top-period-field"><span>Periodo académico</span><select id="dashboard-period" disabled><option>Cargando…</option></select></label>' : '<span class="period-chip">2026-II</span>'}</div></header>
+        <header class="topbar"><button class="mobile-menu" type="button" aria-label="Abrir menú">${icon("menu")}</button><div><h1>${title}</h1><p>${labels[role]}${role === "director" && view === "dashboard" ? " · Vista ejecutiva" : " · Periodo académico 2026-II"}</p></div><div class="top-actions"><div data-bell></div>${role === "director" && (view === "dashboard" || view === "seguimiento") ? '<label class="top-period-field"><span>Periodo académico</span><select id="dashboard-period" disabled><option>Cargando…</option></select></label>' : '<span class="period-chip">2026-II</span>'}</div></header>
         <main class="page" id="main-content">${content}</main>
       </div>
     </div>`;
@@ -140,19 +158,7 @@ const students = [
   ["Diego Mejía León", "Lic. Educación Infantil", "Práctica I", "Colegio Integrado", "Finalizada", "4.72"],
 ];
 
-const advisorStudents = [
-  { id: "laura", name: "Laura Gómez Martínez", program: "Lic. Educación Infantil", practice: "Práctica III", institution: "I.E. San José", supervisor: "Juan Suárez López", practiceStatus: "En desarrollo", evaluationStatus: "En borrador" },
-  { id: "carlos", name: "Carlos Ruiz Peña", program: "Lic. Educación Infantil", practice: "Práctica III", institution: "I.E. San José", supervisor: "Claudia Martínez", practiceStatus: "Por calificar", evaluationStatus: "Pendiente" },
-  { id: "ana", name: "Ana Torres Vega", program: "Lic. Educación Infantil", practice: "Práctica II", institution: "I.E. San José", supervisor: "Juan Suárez López", practiceStatus: "En desarrollo", evaluationStatus: "En borrador" },
-  { id: "diego", name: "Diego Mejía León", program: "Lic. Educación Infantil", practice: "Práctica I", institution: "I.E. San José", supervisor: "Carlos Mendoza Ruiz", practiceStatus: "Finalizada", evaluationStatus: "Calificado" },
-];
 
-const teacherStudents = [
-  { id: "laura", name: "Laura Gómez Martínez", program: "Lic. Educación Infantil", practice: "Práctica III", institution: "I.E. San José", advisor: "María Ríos Castro", practiceStatus: "En desarrollo", evaluationStatus: "En borrador" },
-  { id: "ana", name: "Ana Torres Vega", program: "Lic. Educación Infantil", practice: "Práctica II", institution: "I.E. San José", advisor: "María Ríos Castro", practiceStatus: "Por calificar", evaluationStatus: "Pendiente" },
-  { id: "valentina", name: "Valentina Herrera Díaz", program: "Lic. Educación Infantil", practice: "Práctica III", institution: "Colegio La Salle", advisor: "Carolina Méndez", practiceStatus: "En desarrollo", evaluationStatus: "En borrador" },
-  { id: "mateo", name: "Mateo Rojas Silva", program: "Lic. Educación Infantil", practice: "Práctica I", institution: "Colegio Integrado", advisor: "Jorge Ramírez", practiceStatus: "Finalizada", evaluationStatus: "Calificado" },
-];
 
 const userDirectory = [
   { id: "laura", document: "1019234567", name: "Laura Gómez Martínez", role: "Estudiante", program: "Lic. Educación Infantil", semester: "3° semestre", email: "laura.gomez@udi.edu.co", phone: "310 555 0184", status: "Activo", practice: "Práctica III", institution: "I.E. San José" },
@@ -312,29 +318,12 @@ const auditRecords = [
   },
 ];
 
-function studentTable(evaluator = false) {
-  if (evaluator && role === "asesor") {
-    const practiceTone = (status) => status === "Finalizada" ? "success" : status === "Por calificar" ? "warning" : "info";
-    const evaluationTone = (status) => status === "Calificado" ? "success" : status === "En borrador" ? "info" : "warning";
-    return `<div class="table-wrap"><table class="advisor-student-table"><thead><tr><th>Estudiante</th><th>Práctica / Supervisor UDI</th><th>Estado de práctica</th><th>Evaluación asesor</th><th>Acción</th></tr></thead><tbody>${advisorStudents.map((student) => {
-      const needsEvaluation = student.practiceStatus === "Por calificar";
-      return `<tr><td><div class="person"><span class="avatar">${initials(student.name)}</span><span><strong>${student.name}</strong><small>${student.program}</small></span></div></td><td><strong>${student.practice}</strong><small>Supervisor UDI: ${student.supervisor}</small></td><td>${badge(student.practiceStatus, practiceTone(student.practiceStatus))}</td><td>${badge(student.evaluationStatus, evaluationTone(student.evaluationStatus))}</td><td><a class="btn ${needsEvaluation ? "btn-primary" : "btn-secondary"}" href="${pathFor("asesor", "evaluacion")}?student=${student.id}${needsEvaluation ? "" : "&mode=view"}">${needsEvaluation ? "Evaluar" : "Ver bitácora"}</a></td></tr>`;
-    }).join("")}</tbody></table></div>`;
-  }
-  if (evaluator) {
-    return `<div class="table-wrap"><table><thead><tr><th>Estudiante</th><th>Práctica / institución</th><th>Estado de práctica</th><th>Evaluación docente</th><th>Acción</th></tr></thead><tbody>${teacherStudents.map((student) => {
-      const needsEvaluation = student.practiceStatus === "Por calificar";
-      return `<tr><td><div class="person"><span class="avatar">${initials(student.name)}</span><span><strong>${student.name}</strong><small>${student.program}</small></span></div></td><td><strong>${student.practice}</strong><small>${student.institution} · Asesor: ${student.advisor}</small></td><td>${badge(student.practiceStatus, student.practiceStatus === "Finalizada" ? "success" : needsEvaluation ? "warning" : "info")}</td><td>${badge(student.evaluationStatus, student.evaluationStatus === "Calificado" ? "success" : student.evaluationStatus === "En borrador" ? "info" : "warning")}</td><td><a class="btn ${needsEvaluation ? "btn-primary" : "btn-secondary"}" href="${pathFor("docente", "evaluacion")}?student=${student.id}${needsEvaluation ? "" : "&mode=view"}">${needsEvaluation ? "Evaluar" : "Ver bitácora"}</a></td></tr>`;
-    }).join("")}</tbody></table></div>`;
-  }
-  return `<div class="table-wrap"><table><thead><tr><th>Estudiante</th><th>Práctica / institución</th><th>Estado</th><th>Nota</th><th>Acción</th></tr></thead><tbody>${students.map((student) => `<tr><td><div class="person"><span class="avatar">${initials(student[0])}</span><span><strong>${student[0]}</strong><small>${student[1]}</small></span></div></td><td><strong>${student[2]}</strong><small>${student[3]}</small></td><td>${badge(student[4], student[4] === "Finalizada" ? "success" : student[4] === "Por calificar" ? "warning" : "info")}</td><td><strong>${student[5]}</strong></td><td><a class="btn btn-ghost" href="#">Ver</a></td></tr>`).join("")}</tbody></table></div>`;
-}
 
 /** Escapa texto para insertarlo de forma segura en HTML (evita inyección XSS). */
 const escapar = (valor) => String(valor ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 // ---- Dashboard del director (datos reales de la API) ----
 const TAMANO_PAGINA_DASHBOARD = 10;
-const dashEstado = { periodos: [], periodoId: null, pagina: 1, filas: new Map(), peticion: 0 };
+const dashEstado = { periodos: [], periodoId: null, pagina: 1, filas: new Map(), peticion: 0, q: "", grupo: "EN_MARCHA", nivelId: "", niveles: null };
 
 // Texto y color con que se muestra el estado de la bitácora y de la evaluación.
 const ETIQUETA_BITACORA = {
@@ -354,19 +343,48 @@ const notaTexto = (evaluacion) => (evaluacion?.nota == null ? "Pendiente" : Numb
 /** Saludo según la hora del día. */
 const saludo = () => { const h = new Date().getHours(); return h < 12 ? "Buenos días" : h < 19 ? "Buenas tardes" : "Buenas noches"; };
 
-/** Vista general del director: indicadores y tabla de prácticas por periodo. */
+/** Vista general del director: qué requiere atención ahora, indicadores clave. */
 function directorDashboard() {
   const nombre = escapar(session.usuario.nombres || session.usuario.nombre_completo || "").split(" ")[0];
-  shell(`<section class="welcome"><div><span class="eyebrow">Resumen ejecutivo</span><h2>${saludo()}${nombre ? `, ${nombre}` : ""}</h2><p>Este es el estado de las prácticas pedagógicas para el periodo seleccionado.</p></div></section>
+  shell(`<section class="welcome"><div><span class="eyebrow">Resumen ejecutivo</span><h2>${saludo()}${nombre ? `, ${nombre}` : ""}</h2><p>Lo más importante del periodo y lo que necesita tu atención hoy.</p></div></section>
   <section class="stats-grid dashboard-stats">
-    <article class="stat-card"><span class="stat-icon blue">${icon("users")}</span><div><span>Prácticas activas</span><strong data-dashboard-metric="active">…</strong><small data-dashboard-detail="active"> </small></div></article>
-    <article class="stat-card"><span class="stat-icon green">${icon("file")}</span><div><span>Expedientes completos</span><strong data-dashboard-metric="files">…</strong><small data-dashboard-detail="files"> </small></div></article>
-    <article class="stat-card"><span class="stat-icon orange">${icon("clipboard")}</span><div><span>Evaluaciones por publicar</span><strong data-dashboard-metric="pending">…</strong><small data-dashboard-detail="pending"> </small></div></article>
-    <article class="stat-card"><span class="stat-icon purple">${icon("building")}</span><div><span>Instituciones activas</span><strong data-dashboard-metric="institutions">…</strong><small data-dashboard-detail="institutions"> </small></div></article>
+    <a class="stat-card stat-link" href="${pathFor("director", "seguimiento")}?grupo=VIGENTES"><span class="stat-icon blue">${icon("users")}</span><div><span>Prácticas activas</span><strong data-dashboard-metric="active">…</strong><small data-dashboard-detail="active"> </small></div></a>
+    <a class="stat-card stat-link" href="${pathFor("director", "auditoria")}?estado=COMPLETO"><span class="stat-icon green">${icon("file")}</span><div><span>Expedientes completos</span><strong data-dashboard-metric="files">…</strong><small data-dashboard-detail="files"> </small></div></a>
+    <a class="stat-card stat-link" href="${pathFor("director", "seguimiento")}?grupo=EN_EVALUACION"><span class="stat-icon orange">${icon("clipboard")}</span><div><span>Prácticas en evaluación</span><strong data-dashboard-metric="pending">…</strong><small data-dashboard-detail="pending"> </small></div></a>
+    <a class="stat-card stat-link" href="${pathFor("director", "usuarios")}?pestana=instituciones"><span class="stat-icon purple">${icon("building")}</span><div><span>Instituciones activas</span><strong data-dashboard-metric="institutions">…</strong><small data-dashboard-detail="institutions"> </small></div></a>
   </section>
-  <section class="dashboard-grid"><article class="panel"><header class="panel-heading dashboard-table-heading"><div><h3>Seguimiento de prácticas</h3><p>Actividad del periodo <strong data-selected-period>…</strong></p></div><a class="dashboard-directory-link" href="${pathFor("director","usuarios")}">¿Buscas un estudiante? Ir a Gestión de Usuarios →</a></header><div id="dashboard-table">${estadoCarga("Cargando prácticas…")}</div><footer class="pagination dashboard-pagination"><span id="dashboard-pagination-summary"></span><nav aria-label="Paginación de prácticas" data-dashboard-pagination></nav></footer></article>
-  <aside class="panel action-alerts"><header class="panel-heading"><div><h3>Alertas de acción rápida</h3><p>Situaciones que requieren atención</p></div></header><div class="alert-list" id="dashboard-alerts">${estadoCarga("Cargando alertas…")}</div><div class="alert-footer"><span id="dashboard-updated"></span></div></aside></section>`, "Vista general");
+  <section class="panel action-board"><header class="panel-heading"><div><h3>¿Qué hay que hacer ahora?</h3><p id="dashboard-pending-count">Situaciones que requieren atención</p></div><span class="muted" id="dashboard-updated"></span></header><div id="dashboard-alerts">${estadoCarga("Cargando tareas…")}</div></section>`, "Vista general");
   iniciarDashboardDirector();
+}
+
+/** Seguimiento de prácticas: tabla paginada con la bitácora y la evaluación de cada estudiante del periodo. */
+function seguimientoView() {
+  shell(`<header class="page-title"><div><span class="eyebrow">Seguimiento</span><h2>Seguimiento de prácticas</h2><p>Actividad del periodo <strong data-selected-period>…</strong>: bitácora, evaluación y documentos de cada estudiante.</p></div><a class="btn btn-secondary" href="${pathFor("director", "usuarios")}">¿Buscas un estudiante? Ir a Gestión de Usuarios</a></header>
+  <section class="panel"><div class="toolbar"><label class="search"><span class="sr-only">Buscar estudiante</span><input id="seguimiento-search" placeholder="Buscar por nombre o cédula del estudiante..." /></label><select id="seguimiento-grupo" aria-label="Filtrar por etapa"><option value="EN_MARCHA">En marcha (en curso, en evaluación, finalizadas)</option><option value="VIGENTES">Activas (en curso y en evaluación)</option><option value="EN_CURSO">En curso</option><option value="EN_EVALUACION">Pendientes de evaluación</option><option value="FINALIZADA">Finalizadas</option><option value="">Todas, incluidas las solicitudes</option></select><select id="seguimiento-nivel" aria-label="Filtrar por semestre"><option value="">Todos los semestres</option></select></div><div id="dashboard-table">${estadoCarga("Cargando prácticas…")}</div><footer class="pagination dashboard-pagination"><span id="dashboard-pagination-summary"></span><nav aria-label="Paginación de prácticas" data-dashboard-pagination></nav></footer></section>`, "Seguimiento de prácticas");
+  const grupoInicial = new URLSearchParams(window.location.search).get("grupo");
+  dashEstado.q = ""; dashEstado.nivelId = "";
+  dashEstado.grupo = ["EN_MARCHA", "VIGENTES", "EN_CURSO", "EN_EVALUACION", "FINALIZADA"].includes(grupoInicial) ? grupoInicial : "EN_MARCHA";
+  const selectorGrupo = document.querySelector("#seguimiento-grupo");
+  if (selectorGrupo) selectorGrupo.value = dashEstado.grupo;
+  iniciarFiltrosSeguimiento();
+  iniciarDashboardDirector();
+}
+
+/** Conecta la búsqueda y los filtros de etapa y semestre del seguimiento. */
+async function iniciarFiltrosSeguimiento() {
+  let temporizador;
+  const recargar = () => { dashEstado.pagina = 1; cargarDashboardDirector(); };
+  document.querySelector("#seguimiento-search")?.addEventListener("input", (e) => {
+    clearTimeout(temporizador);
+    temporizador = setTimeout(() => { dashEstado.q = e.target.value.trim(); recargar(); }, 300);
+  });
+  document.querySelector("#seguimiento-grupo")?.addEventListener("change", (e) => { dashEstado.grupo = e.target.value; recargar(); });
+  document.querySelector("#seguimiento-nivel")?.addEventListener("change", (e) => { dashEstado.nivelId = e.target.value; recargar(); });
+  try {
+    if (!dashEstado.niveles) dashEstado.niveles = (await api.get("/practice-levels")).data;
+    const selector = document.querySelector("#seguimiento-nivel");
+    if (selector) selector.innerHTML = `<option value="">Todos los semestres</option>${dashEstado.niveles.map((n) => `<option value="${escapar(n.id)}">${escapar(n.nombre)}</option>`).join("")}`;
+  } catch { /* sin niveles el filtro simplemente queda en "Todos" */ }
 }
 
 function estadoCarga(texto) {
@@ -398,49 +416,102 @@ async function iniciarDashboardDirector() {
   cargarDashboardDirector();
 }
 
-/** Consulta el resumen del periodo seleccionado y repinta indicadores y tabla. */
+/** Consulta lo que la pantalla actual necesita (Vista general o Seguimiento) para el periodo seleccionado. */
 async function cargarDashboardDirector() {
   const turno = ++dashEstado.peticion;
   const query = dashEstado.periodoId ? { periodo_id: dashEstado.periodoId } : {};
-  const [resumen, practicas] = await Promise.allSettled([
-    api.get("/dashboard", query),
-    api.get("/dashboard/practices", { ...query, page: dashEstado.pagina, page_size: TAMANO_PAGINA_DASHBOARD }),
+  const enResumen = Boolean(document.querySelector("#dashboard-alerts"));
+  const enTabla = Boolean(document.querySelector("#dashboard-table"));
+  const [resumen, acciones, practicas] = await Promise.allSettled([
+    enResumen ? api.get("/dashboard", query) : null,
+    enResumen ? api.get("/dashboard/actions", query) : null,
+    enTabla ? api.get("/dashboard/practices", { ...query, ...(dashEstado.q ? { q: dashEstado.q } : {}), ...(dashEstado.grupo ? { grupo: dashEstado.grupo } : {}), ...(dashEstado.nivelId ? { nivel_practica_id: dashEstado.nivelId } : {}), page: dashEstado.pagina, page_size: TAMANO_PAGINA_DASHBOARD }) : null,
   ]);
   if (turno !== dashEstado.peticion) return; // llegó una respuesta de un periodo/página anterior
-  pintarIndicadores(resumen);
-  pintarTablaPracticas(practicas);
+  const codigo = dashEstado.periodos.find((p) => p.id === dashEstado.periodoId)?.codigo || "todos los periodos";
+  document.querySelectorAll("[data-selected-period]").forEach((el) => { el.textContent = codigo; });
+  if (enResumen) {
+    pintarIndicadores(resumen);
+    pintarAcciones(acciones);
+  }
+  if (enTabla) pintarTablaPracticas(practicas);
 }
 
 /** Dibuja las tarjetas de indicadores. */
 function pintarIndicadores(resultado) {
-  const alertas = document.querySelector("#dashboard-alerts");
   if (resultado.status === "rejected") {
     ["active", "files", "pending", "institutions"].forEach((k) => {
       document.querySelector(`[data-dashboard-metric="${k}"]`).textContent = "—";
       document.querySelector(`[data-dashboard-detail="${k}"]`).textContent = "No se pudieron cargar las métricas";
     });
-    alertas.innerHTML = estadoError(resultado.reason?.message || "No se pudieron cargar las alertas.", "dashboard-retry");
     return;
   }
-  const { indicadores: i, alertas: a, periodo } = resultado.value.data;
+  const { indicadores: i, alertas: a } = resultado.value.data;
   const fijar = (k, valor, detalle) => {
     document.querySelector(`[data-dashboard-metric="${k}"]`).textContent = valor;
     document.querySelector(`[data-dashboard-detail="${k}"]`).textContent = detalle;
   };
   fijar("active", i.practicas_activas, `${i.practicas_finalizadas} finalizadas en el periodo`);
   fijar("files", i.expedientes_completos, "Documentos legales aprobados");
-  fijar("pending", i.evaluaciones_pendientes, `${i.evaluaciones_publicadas} evaluaciones publicadas`);
+  fijar("pending", i.practicas_en_evaluacion ?? 0, `${i.practicas_finalizadas} ya finalizadas`);
   fijar("institutions", i.instituciones_activas, `${a.convenios_en_tramite} convenios en trámite`);
-  document.querySelector("[data-selected-period]").textContent = periodo?.codigo || "todos los periodos";
-  const alerta = (ruta, tono, icono, cantidad, titulo, detalle) => `<a href="${pathFor("director", ruta)}"><span class="alert-icon ${tono}">${icon(icono)}</span><span><strong><b>${cantidad}</b> ${titulo}</strong><small>${detalle}</small></span><span>→</span></a>`;
-  alertas.innerHTML = [
-    alerta("auditoria", "red", "file", a.expedientes_por_auditar, "expedientes por auditar", "Requieren auditoría documental"),
-    alerta("auditoria", "orange", "file", a.expedientes_por_corregir, "expedientes por corregir", "Esperan que el estudiante los corrija"),
-    alerta("asignaciones", "orange", "users", a.practicas_sin_docente, "prácticas sin docente", "Pendientes de asignación"),
-    alerta("asignaciones", "orange", "users", a.practicas_sin_asesor, "prácticas sin asesor", "Pendientes de asignación"),
-    alerta("usuarios", "blue", "building", a.convenios_en_tramite, "convenios en trámite", "Validar instituciones vinculadas"),
-  ].join("");
   document.querySelector("#dashboard-updated").textContent = `Actualizado a las ${new Date().toLocaleTimeString("es-CO", { hour: "2-digit", minute: "2-digit" })}`;
+}
+
+// Cuántas tarjetas se muestran de entrada; el resto queda plegado en «Otras cosas por revisar».
+const TARJETAS_VISIBLES = 6;
+// Pantalla a la que lleva cada tarjeta de acción.
+const DESTINO_ACCION = { solicitudes: "solicitudes", docentes_nivel: "docentes", cuestionarios: "plantillas", evaluaciones: "seguimiento", practicas: "seguimiento", instituciones: "usuarios", usuarios: "usuarios", seguimiento: "seguimiento" };
+const ICONO_ACCION = { DOCUMENTOS_POR_REVISAR: "file", SOLICITUDES_LISTAS_PARA_ASIGNAR: "users", PRACTICAS_LISTAS_PARA_CERRAR: "check", SOLICITUDES_SIN_ASESOR_EN_PLAZA: "building", ESTUDIANTES_SIN_SOLICITUD: "users", DEVUELTAS_SIN_RESPUESTA: "alert", PRACTICAS_SIN_AVANCE_DE_BITACORA: "edit", ASESORES_SOBRECARGADOS: "users", CIERRE_DE_PERIODO: "clock", SOLICITUDES_DEVUELTAS: "file", NIVELES_SIN_DOCENTE: "users", PRACTICAS_SIN_ASESOR: "users", CONVENIOS_EN_TRAMITE: "building" };
+
+/**
+ * «¿Qué hay que hacer ahora?»: tarjetas del endpoint /dashboard/actions que tienen casos, en el orden del flujo
+ * (no se califican como urgentes: la prioridad la decide quien las lee). Se ven las primeras y el resto queda plegado.
+ */
+function pintarAcciones(resultado) {
+  const caja = document.querySelector("#dashboard-alerts");
+  if (!caja) return;
+  if (resultado.status === "rejected") {
+    caja.innerHTML = estadoError(resultado.reason?.message || "No se pudieron cargar las tareas pendientes.", "dashboard-retry");
+    return;
+  }
+  const { tarjetas, pendientes } = resultado.value.data;
+  const conCasos = tarjetas.filter((t) => t.total > 0);
+  const encabezado = document.querySelector("#dashboard-pending-count");
+  if (encabezado) encabezado.textContent = pendientes ? `${pendientes} por atender` : "Todo al día";
+  const acciones = conCasos.filter((t) => t.tipo !== "info");
+  const informativas = conCasos.filter((t) => t.tipo === "info");
+  if (!conCasos.length) {
+    caja.innerHTML = `<p class="muted action-empty">✓ Todo al día: no tienes tareas pendientes en este periodo.</p>`;
+    return;
+  }
+  const tarjetaHtml = (t) => {
+    const casos = (t.casos || []).map((c) => `<li><a href="${urlCaso(c)}"><strong>${escapar(c.titulo)}</strong><small>${escapar(c.detalle)}</small></a></li>`).join("");
+    const resto = t.total - (t.casos || []).length;
+    return `<article class="action-card blue"><span class="alert-icon blue">${icon(ICONO_ACCION[t.codigo] || "clipboard")}</span><span class="action-count">${t.total}</span><h4>${escapar(t.titulo)}</h4>${casos ? `<ul class="action-cases">${casos}${resto > 0 ? `<li class="action-more">y ${resto} más</li>` : ""}</ul>` : ""}<span class="action-meta"><a class="action-go" href="${urlAccion(t)}">${t.casos?.length ? "Ver todas" : "Atender"} →</a></span></article>`;
+  };
+  const visibles = acciones.slice(0, TARJETAS_VISIBLES);
+  const otras = acciones.slice(TARJETAS_VISIBLES);
+  caja.innerHTML = `${visibles.length ? `<div class="action-grid">${visibles.map(tarjetaHtml).join("")}</div>` : `<p class="muted action-empty">✓ No hay tareas por atender en este periodo.</p>`}${otras.length ? `<details class="action-others"><summary>Otras ${otras.length} ${otras.length === 1 ? "cosa por revisar" : "cosas por revisar"}</summary><div class="action-grid">${otras.map(tarjetaHtml).join("")}</div></details>` : ""}${informativas.length ? `<div class="action-info"><span>Para tener en cuenta</span>${informativas.map((t) => `<a href="${urlAccion(t)}"><b>${t.total}</b> ${escapar(t.titulo)} →</a>`).join("")}</div>` : ""}`;
+}
+
+/** Dirección a la que lleva una tarjeta de acción (pantalla + filtro de estado si lo trae). */
+function urlAccion(tarjeta) {
+  const ruta = DESTINO_ACCION[tarjeta.destino?.pantalla] || "dashboard";
+  // Cualquier filtro simple de la tarjeta (estado, grupo, rol, practica, convenio…) viaja en la dirección; las listas no.
+  const pares = Object.entries(tarjeta.destino?.filtro || {}).filter(([, v]) => typeof v === "string");
+  const filtro = pares.length ? `?${pares.map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`).join("&")}` : "";
+  return `${pathFor("director", ruta)}${filtro}`;
+}
+
+/** Dirección de un caso concreto de una tarjeta (una solicitud, una práctica, un estudiante o un asesor). */
+function urlCaso(caso) {
+  const { pantalla, id, pestana } = caso.destino;
+  const id_ = encodeURIComponent(id);
+  if (pantalla === "solicitudes") return `${pathFor("director", "solicitudes")}?id=${id_}`;
+  if (pantalla === "practica") return `${pathFor("director", "practica")}?id=${id_}${pestana ? `&pestana=${encodeURIComponent(pestana)}` : ""}`;
+  if (pantalla === "asesor_perfil") return `${pathFor("director", "asesor-perfil")}?id=${id_}`;
+  return `${pathFor("director", "perfil")}?id=${id_}`;
 }
 
 /** Dibuja la tabla paginada de prácticas del dashboard. */
@@ -457,7 +528,7 @@ function pintarTablaPracticas(resultado) {
   const { data, meta } = resultado.value;
   dashEstado.filas = new Map(data.map((fila) => [fila.id, fila]));
   if (!data.length) {
-    tabla.innerHTML = estadoCarga("No hay prácticas registradas para este periodo.");
+    tabla.innerHTML = estadoCarga(dashEstado.q || dashEstado.nivelId || dashEstado.grupo !== "EN_MARCHA" ? "No hay prácticas con esos filtros." : "Todavía no hay prácticas en marcha en este periodo.");
     resumen.textContent = "0 prácticas";
     botones.innerHTML = "";
     return;
@@ -465,7 +536,7 @@ function pintarTablaPracticas(resultado) {
   tabla.innerHTML = `<div class="table-wrap"><table class="dashboard-practices"><thead><tr><th>Estudiante</th><th>Práctica / institución</th><th>Estado de bitácora</th><th>Evaluación</th><th>Acción</th></tr></thead><tbody>${data.map((fila) => {
     const [textoB, tonoB] = etiquetaBitacora(fila);
     const [textoE, tonoE] = etiquetaEvaluacion(fila);
-    return `<tr><td><a class="person practice-person" href="${pathFor("director","perfil")}?id=${escapar(fila.estudiante.id)}"><span class="avatar">${escapar(initials(fila.estudiante.nombre_completo))}</span><span><strong>${escapar(fila.estudiante.nombre_completo)}</strong><small>${escapar(fila.estudiante.documento)}</small></span></a></td><td><strong>${escapar(fila.nivel.nombre)}</strong><small>${escapar(fila.institucion.nombre)}</small></td><td>${badge(textoB, tonoB)}</td><td>${badge(textoE, tonoE)}</td><td><button class="btn btn-secondary" type="button" data-practice-summary="${escapar(fila.id)}">Ver resumen</button></td></tr>`;
+    return `<tr><td><a class="person practice-person" href="${pathFor("director","perfil")}?id=${escapar(fila.estudiante.id)}"><span class="avatar">${escapar(initials(fila.estudiante.nombre_completo))}</span><span><strong>${escapar(fila.estudiante.nombre_completo)}</strong><small>${escapar(fila.estudiante.documento)}</small></span></a></td><td><strong>${escapar(fila.nivel.nombre)}</strong><small>${escapar(fila.institucion?.nombre ?? "Sin institución")}</small></td><td>${badge(textoB, tonoB)}</td><td>${badge(textoE, tonoE)}</td><td><button class="btn btn-secondary" type="button" data-practice-summary="${escapar(fila.id)}">Ver resumen</button></td></tr>`;
   }).join("")}</tbody></table></div>`;
   const desde = (meta.page - 1) * meta.page_size + 1;
   resumen.textContent = `Mostrando ${desde} - ${desde + data.length - 1} de ${meta.total} prácticas`;
@@ -484,41 +555,34 @@ function abrirResumenPractica(fila) {
   const [textoB, tonoB] = etiquetaBitacora(fila);
   const [textoE, tonoE] = etiquetaEvaluacion(fila);
   const d = fila.documentos;
-  openModal(`Resumen de práctica · ${escapar(fila.estudiante.nombre_completo)}`, `<div class="practice-summary-modal"><header><span class="eyebrow">${escapar(fila.nivel.nombre)}</span><p>${escapar(fila.institucion.nombre)}${fila.institucion.ciudad ? ` · ${escapar(fila.institucion.ciudad)}` : ""}</p></header><div class="summary-statuses"><div><span>Estado de bitácora</span>${badge(textoB, tonoB)}</div><div><span>Estado de evaluación</span>${badge(textoE, tonoE)}</div><div><span>Documentos</span><strong>${d ? `${d.aprobados} de ${d.total} aprobados` : "—"}</strong></div></div><div class="summary-people"><div><span>Docente supervisor</span><strong>${escapar(fila.docente?.nombre_completo || "Sin asignar")}</strong></div><div><span>Asesor de sitio</span><strong>${escapar(fila.asesor?.nombre_completo || "Sin asignar")}</strong></div></div><div class="independent-grades"><div><span>Nota docente</span><strong>${notaTexto(fila.evaluaciones?.docente)}</strong></div><div><span>Nota asesor</span><strong>${notaTexto(fila.evaluaciones?.asesor)}</strong></div></div><p class="summary-note">Las calificaciones se presentan por separado y no se promedian en esta vista.</p><div class="form-actions"><a class="btn btn-secondary" href="${pathFor("director","perfil")}?id=${escapar(fila.estudiante.id)}">Abrir perfil completo</a><button class="btn btn-primary" type="button" data-close>Cerrar</button></div></div>`);
+  const modal = openModal(`Resumen de práctica · ${escapar(fila.estudiante.nombre_completo)}`, `<div class="practice-summary-modal"><header><span class="eyebrow">${escapar(fila.nivel.nombre)}</span><p>${escapar(fila.institucion?.nombre ?? "Sin institución")}${fila.institucion?.ciudad ? ` · ${escapar(fila.institucion.ciudad)}` : ""}</p></header><div class="summary-statuses"><div><span>Estado de bitácora</span>${badge(textoB, tonoB)}</div><div><span>Estado de evaluación</span>${badge(textoE, tonoE)}</div><div><span>Documentos</span><strong>${d ? `${d.aprobados} de ${d.total} aprobados` : "—"}</strong></div></div><div class="summary-people"><div><span>Docente supervisor</span><strong>${escapar(fila.docente?.nombre_completo || "Sin asignar")}</strong></div><div><span>Asesor de sitio</span><strong>${escapar(fila.asesor?.nombre_completo || "Sin asignar")}</strong></div></div><div class="independent-grades"><div><span>Nota docente</span><strong>${notaTexto(fila.evaluaciones?.docente)}</strong></div><div><span>Nota asesor</span><strong>${notaTexto(fila.evaluaciones?.asesor)}</strong></div></div><p class="summary-note">Las calificaciones se presentan por separado y no se promedian en esta vista.</p><div class="form-actions"><a class="btn btn-secondary" href="${pathFor("director","practica")}?id=${escapar(fila.id)}">Abrir práctica</a><a class="btn btn-secondary" href="${pathFor("director","perfil")}?id=${escapar(fila.estudiante.id)}">Perfil del estudiante</a><button class="btn btn-primary" type="button" data-close>Cerrar</button></div>${ESTADOS_EDITABLES.includes(fila.estado) ? `<div class="form-actions practice-admin-actions"><button class="btn btn-secondary" type="button" data-resumen-reasignar>Cambiar institución o asesor</button><button class="btn btn-danger" type="button" data-resumen-cancelar>Cancelar práctica</button></div>` : ""}</div>`);
+  const ui = { badge, escapar, icon, initials, openModal, pathFor, showToast };
+  modal.querySelector("[data-resumen-reasignar]")?.addEventListener("click", () => { modal.remove(); reasignarPractica(ui, fila, cargarDashboardDirector); });
+  modal.querySelector("[data-resumen-cancelar]")?.addEventListener("click", () => { modal.remove(); cancelarPractica(ui, fila, cargarDashboardDirector); });
 }
 
 // ---- Vistas del director (delegan en módulos *Admin) ----
 function usersView() {
   shell(`<header class="page-title"><div><span class="eyebrow">Administración</span><h2>Gestión de Usuarios e Instituciones</h2><p>Administra usuarios e instituciones vinculadas a las prácticas.</p></div><button class="btn btn-primary" data-new>+ Nuevo usuario</button></header>
   <div class="tabs"><button class="active" data-tab="users">Usuarios</button><button data-tab="sites">Instituciones</button></div>
-  <section class="panel" id="users-catalog"><div class="toolbar"><label class="search"><span class="sr-only">Buscar</span><input data-search placeholder="Buscar por nombre, cédula o correo..." /></label><select id="user-role-filter" aria-label="Filtrar por rol"><option value="all">Todos los roles</option><option value="ESTUDIANTE">Estudiantes</option><option value="DOCENTE_SUPERVISOR">Docentes</option><option value="ASESOR_SITIO">Asesores</option></select><select id="user-semester-filter" aria-label="Filtrar por semestre"><option value="all">Todos los semestres</option>${Array.from({length:8},(_,index)=>`<option value="${index+1}° semestre">${index+1}° semestre</option>`).join("")}</select><select id="user-status-filter" aria-label="Filtrar por estado"><option value="all">Todos los estados</option><option value="ACTIVO">Activos</option><option value="INACTIVO">Inactivos</option><option value="SUSPENDIDO">Suspendidos</option></select></div><div class="table-wrap"><table><thead><tr><th>Cédula</th><th>Nombre completo</th><th>Rol / programa</th><th>Semestre actual</th><th>Estado</th><th>Acciones</th></tr></thead><tbody id="users-table-body"></tbody></table></div><footer class="pagination" id="users-pagination"><span data-pagination-summary>0 usuarios</span><nav aria-label="Paginación de usuarios" data-pagination-buttons></nav></footer></section>
+  <section class="panel" id="users-catalog"><div class="toolbar"><label class="search"><span class="sr-only">Buscar</span><input data-search placeholder="Buscar por nombre, cédula o correo..." /></label><select id="user-role-filter" aria-label="Filtrar por rol"><option value="all">Todos los roles</option><option value="ESTUDIANTE">Estudiantes</option><option value="DOCENTE_SUPERVISOR">Docentes</option><option value="ASESOR_SITIO">Asesores</option></select><select id="user-semester-filter" aria-label="Filtrar por semestre"><option value="all">Todos los semestres</option>${Array.from({length:8},(_,index)=>`<option value="${index+1}° semestre">${index+1}° semestre</option>`).join("")}</select><select id="user-status-filter" aria-label="Filtrar por estado"><option value="all">Todos los estados</option><option value="ACTIVO">Activos</option><option value="INACTIVO">Inactivos</option><option value="SUSPENDIDO">Suspendidos</option></select><select id="user-practice-filter" aria-label="Filtrar por situación de práctica"><option value="all">Toda situación de práctica</option><option value="SIN_SOLICITUD">Aún no envían solicitud</option><option value="SOLICITUD">Solicitud en trámite</option><option value="EN_PRACTICA">En práctica</option><option value="FINALIZADA">Práctica finalizada</option><option value="RECHAZADA">Solicitud rechazada</option></select></div><div class="table-wrap"><table><thead><tr><th>Cédula</th><th>Nombre completo</th><th>Rol / programa</th><th>Semestre actual</th><th>Práctica</th><th>Estado</th><th>Acciones</th></tr></thead><tbody id="users-table-body"></tbody></table></div><footer class="pagination" id="users-pagination"><span data-pagination-summary>0 usuarios</span><nav aria-label="Paginación de usuarios" data-pagination-buttons></nav></footer></section>
   <section class="panel" id="sites-catalog" hidden><div class="toolbar"><label class="search"><span class="sr-only">Buscar institución</span><input data-site-search placeholder="Buscar por institución, NIT, ciudad o asesor..." /></label><select id="institution-agreement-filter" aria-label="Filtrar por convenio"><option value="all">Todos los convenios</option><option value="VIGENTE">Vigentes</option><option value="EN_TRAMITE">En trámite</option><option value="SUSPENDIDO">Suspendidos</option><option value="VENCIDO">Vencidos</option></select><select id="institution-status-filter" aria-label="Filtrar por estado"><option value="all">Todos los estados</option><option value="true">Activas</option><option value="false">Inactivas</option></select></div><div class="table-wrap"><table><thead><tr><th>NIT</th><th>Institución</th><th>Ciudad / asesores vinculados</th><th>Convenio</th><th>Prácticas activas</th><th>Estado</th><th>Acciones</th></tr></thead><tbody id="institutions-table-body"></tbody></table></div><footer class="pagination" id="institutions-pagination"><span data-institution-pagination-summary>0 instituciones</span><nav aria-label="Paginación de instituciones" data-institution-pagination-buttons></nav></footer></section>`, "Gestión de Usuarios y Instituciones");
   montarUsuarios({ badge, escapar, icon, initials, openModal, pathFor, showToast });
   montarInstituciones({ badge, escapar, icon, openModal, pathFor, showToast });
 }
 
-function institutionTableRow(institution) {
-  return `<tr data-institution-row="${institution.id}" data-site-row="${`${institution.name} ${institution.nit} ${institution.city} ${institution.advisors.join(" ")}`.toLowerCase()}" data-agreement="${institution.agreement}" data-institution-status="${institution.status}"><td data-institution-list-field="nit">${institution.nit}</td><td><div class="person"><span class="stat-icon blue">${icon("building")}</span><span><a class="profile-link" data-institution-list-field="name" href="${pathFor("director", "institucion")}?id=${institution.id}">${institution.name}</a><small data-institution-list-field="email">${institution.email}</small></span></div></td><td><strong data-institution-list-field="city">${institution.city}</strong><small data-institution-advisors>${institution.advisors.join(" · ")}</small></td><td data-agreement-cell>${badge(institution.agreement, institution.agreement === "Vigente" ? "success" : institution.agreement === "Suspendido" ? "danger" : "warning")}</td><td><strong>${institution.students}</strong></td><td data-institution-status-cell>${badge(institution.status, institution.status === "Activa" ? "success" : "neutral")}</td><td><div class="row-actions"><a class="btn btn-secondary" href="${pathFor("director", "institucion")}?id=${institution.id}">Ver perfil</a><button class="btn btn-secondary" type="button" data-edit-institution="${institution.id}">Editar</button><button class="btn ${institution.status === "Activa" ? "btn-danger" : "btn-secondary"}" type="button" data-toggle-institution="${institution.id}">${institution.status === "Activa" ? "Deshabilitar" : "Habilitar"}</button></div></td></tr>`;
-}
 
 function userProfileView() {
   shell('<p class="muted" style="padding:32px;text-align:center">Cargando…</p>', "Perfil de usuario");
   montarPerfilUsuario({ badge, escapar, icon, initials, openModal, pathFor, showToast });
 }
 
-function studentPracticeHistoryTable(studentId) {
-  const history = studentPracticeHistory[studentId] || [];
-  return `<div class="table-wrap"><table><thead><tr><th>Práctica / periodo</th><th>Institución y evaluadores</th><th>Estado de la práctica</th><th>Notas</th><th>Acciones</th></tr></thead><tbody>${history.map((practice) => { const tone = practice.status === "Finalizada" || practice.status === "En desarrollo" ? "success" : practice.status === "Documentación pendiente" ? "warning" : "info"; return `<tr><td><strong>Práctica ${practice.level}</strong><small>${practice.period}</small></td><td><strong>${practice.institution}</strong><small>Docente: ${practice.teacher}</small><small>Asesor: ${practice.advisor}</small></td><td>${badge(practice.status, tone)}<small>Documentos: ${practice.documentStatus || "Aprobados"}</small></td><td>${practice.teacherGrade || practice.advisorGrade ? `<strong>Docente: ${practice.teacherGrade || "Pendiente"}</strong><small>Asesor: ${practice.advisorGrade || "Pendiente"}</small>` : badge("Sin calificar", "neutral")}</td><td><div class="history-actions"><a class="btn btn-secondary" href="${pathFor("director", "practica")}?student=${studentId}&level=${practice.level}">Ver práctica</a>${practice.status === "Finalizada" ? `<button class="btn btn-ghost" type="button" data-download-practice="Práctica ${practice.level} · ${practice.period}">Descargar PDF</button>` : ""}${practice.status === "En desarrollo" ? `<a class="btn btn-ghost" href="${pathFor("director", "asignaciones")}?student=${studentId}">Reasignar sede / tutor</a>` : ""}</div></td></tr>`; }).join("") || '<tr><td colspan="5">Este estudiante aún no tiene prácticas registradas.</td></tr>'}</tbody></table></div>`;
-}
 
 function institutionProfileView() {
   shell('<p class="muted" style="padding:32px;text-align:center">Cargando…</p>', "Institución");
   montarPerfilInstitucion({ badge, escapar, icon, initials, openModal, pathFor, showToast });
 }
 
-function institutionAdvisorsTable(institution) {
-  return `<div class="table-wrap"><table><thead><tr><th>Asesor de sitio</th><th>Institución educativa</th><th>Estudiantes asignados</th><th>Estado</th><th>Acción</th></tr></thead><tbody>${institution.advisors.map((advisorName, index) => { const advisor = advisorDirectory.find((record) => record.name === advisorName); return `<tr><td><div class="person"><span class="avatar">${initials(advisorName)}</span><span><a class="profile-link" href="${pathFor("director", "asesor-perfil")}?id=${advisor?.id || ""}">${advisorName}</a><small>Asesor de sitio</small></span></div></td><td><strong>${institution.name}</strong><small>${institution.city}</small></td><td><strong>${advisor?.studentIds.length || Math.max(1, Math.ceil(institution.students / institution.advisors.length) - index)}</strong><small>Periodo 2026-II</small></td><td>${badge(advisor?.status || "Activo", "success")}</td><td><a class="btn btn-secondary" href="${pathFor("director", "asesor-perfil")}?id=${advisor?.id || ""}">Ver perfil</a></td></tr>`; }).join("")}</tbody></table></div>`;
-}
 
 function advisorProfileView() {
   // El perfil del asesor es el mismo perfil de usuario: muestra sus vinculaciones y sus practicantes.
@@ -526,13 +590,7 @@ function advisorProfileView() {
   montarPerfilUsuario({ badge, escapar, icon, initials, openModal, pathFor, showToast });
 }
 
-function studentNameToId(name) {
-  return { "Laura Gómez Martínez": "laura", "Carlos Ruiz Peña": "carlos", "Ana Torres Vega": "ana", "Diego Mejía León": "diego" }[name];
-}
 
-function advisorStudentsTable(assignedStudents) {
-  return `<div class="table-wrap"><table><thead><tr><th>Estudiante</th><th>Práctica / institución</th><th>Estado de bitácora</th><th>Evaluación asesor</th><th>Acción</th></tr></thead><tbody>${assignedStudents.map((student) => `<tr><td><div class="person"><span class="avatar">${initials(student[0])}</span><span><a class="profile-link" href="${pathFor("director", "perfil")}?id=${studentNameToId(student[0])}">${student[0]}</a><small>${student[1]}</small></span></div></td><td><strong>${student[2]}</strong><small>${student[3]}</small></td><td>${badge(student[4], student[4] === "Finalizada" ? "success" : student[4] === "Por calificar" ? "warning" : "info")}</td><td>${badge(student[4] === "Finalizada" ? "Evaluado" : "Pendiente", student[4] === "Finalizada" ? "success" : "warning")}</td><td><a class="btn btn-secondary" href="${pathFor("director", "perfil")}?id=${studentNameToId(student[0])}">Ver estudiante</a></td></tr>`).join("")}</tbody></table></div>`;
-}
 
 function studentPracticeDetailView() {
   shell('<p class="muted" style="padding:32px;text-align:center">Cargando…</p>', "Detalle de práctica");
@@ -541,7 +599,14 @@ function studentPracticeDetailView() {
 
 function templatesView() {
   shell('<p class="muted" style="padding:32px;text-align:center">Cargando…</p>', "Cuestionarios");
-  montarCuestionarios({ badge, escapar, icon, openModal, pathFor, showToast });
+  // La Dirección consulta; el docente de cada nivel es quien los configura (ver «Mi grupo de práctica»).
+  montarCuestionarios({ badge, escapar, icon, openModal, pathFor, showToast }, { puedeEditar: false });
+}
+
+/** «Mi grupo de práctica» (Docente): guía de criterios y cuestionario de sus niveles. */
+function groupView() {
+  shell('<p class="muted" style="padding:32px;text-align:center">Cargando…</p>', "Mi grupo de práctica");
+  montarGrupoDocente({ badge, escapar, icon, openModal, pathFor, showToast });
 }
 
 function questionBankMarkup(level) {
@@ -639,10 +704,34 @@ function openQuestionCreator(level, questionId = null) {
   });
 }
 
-/** Pantalla de asignaciones (estudiante ↔ docente ↔ asesor ↔ institución). */
-function assignmentsView() {
-  shell(`<header class="page-title"><div><span class="eyebrow">Vinculación académica</span><h2>Asignaciones de práctica</h2><p>Vincula estudiantes con instituciones, docentes supervisores y asesores de sitio.</p></div><button class="btn btn-primary" data-assign>+ Nueva asignación</button></header><section class="panel"><div class="toolbar assignment-toolbar"><label class="search"><span class="sr-only">Buscar asignación</span><input id="assignment-search" placeholder="Buscar estudiante, cédula o institución..." /></label><select id="assignment-period-filter" aria-label="Filtrar por periodo"><option>Cargando…</option></select><select id="assignment-level-filter" aria-label="Filtrar por nivel"><option value="all">Todos los niveles</option>${["I","II","III","IV","V","VI","VII","VIII"].map((level, index) => `<option value="${index + 1}">Práctica ${level}</option>`).join("")}</select><select id="assignment-status-filter" aria-label="Filtrar por estado"><option value="all">Todas las asignaciones</option><option value="SIN_DOCENTE">Sin Docente</option><option value="SIN_ASESOR">Sin Asesor</option><option value="COMPLETA">Asignación Completa</option></select></div><div id="assignment-table"></div></section>`, "Asignaciones");
-  montarAsignaciones({ badge, escapar, initials, openModal, showToast });
+/** Bandeja de solicitudes de práctica y asistente de asignación (Director). */
+function requestsView() {
+  shell('<p class="muted" style="padding:32px;text-align:center">Cargando…</p>', "Solicitudes de práctica");
+  montarSolicitudes({ badge, escapar, icon, initials, openModal, pathFor, showToast });
+}
+
+/** Documentos legales que se piden en cada nivel (Director). */
+function requirementsView() {
+  shell('<p class="muted" style="padding:32px;text-align:center">Cargando…</p>', "Documentos requeridos");
+  montarRequisitos({ badge, escapar, openModal, showToast });
+}
+
+/** Indicadores MEN/CNA y descargas (Director). */
+function reportsView() {
+  shell('<p class="muted" style="padding:32px;text-align:center">Cargando…</p>', "Reportes");
+  montarReportes({ badge, escapar, showToast });
+}
+
+/** Crear, activar y cerrar periodos académicos (Director). */
+function periodsView() {
+  shell('<p class="muted" style="padding:32px;text-align:center">Cargando…</p>', "Periodos académicos");
+  montarPeriodos({ badge, escapar, openModal, showToast });
+}
+
+/** Docente supervisor de cada nivel de práctica (Director). */
+function levelTeachersView() {
+  shell('<p class="muted" style="padding:32px;text-align:center">Cargando…</p>', "Docentes por nivel");
+  montarDocentesNivel({ badge, escapar, showToast });
 }
 
 function assignmentState(record) {
@@ -746,7 +835,7 @@ function openAssignmentEditor(record = null) {
 
 /** Pantalla de auditoría documental. */
 function auditView() {
-  shell(`<header class="page-title"><div><span class="eyebrow">Control documental</span><h2>Auditoría de expedientes</h2><p>Revisa, aprueba o rechaza los soportes legales de cada estudiante.</p></div><div class="audit-summary" id="audit-summary"></div></header>
+  shell(`<header class="page-title"><div><span class="eyebrow">Control documental</span><h2>Expedientes</h2><p>Consulta el estado de los documentos legales de cada estudiante. La revisión se hace en Solicitudes.</p></div><div class="audit-summary" id="audit-summary"></div></header>
   <div class="audit-toolbar">
     <label class="search"><span class="sr-only">Buscar estudiante</span><input id="audit-search" placeholder="Buscar por nombre o cédula del estudiante..." /></label>
     <label class="field"><span>Práctica</span><select id="audit-practice-filter"><option value="all">Todas las prácticas</option>${["I","II","III","IV","V","VI","VII","VIII"].map((nivel, indice) => `<option value="${indice + 1}">Práctica ${nivel}</option>`).join("")}</select></label>
@@ -912,12 +1001,6 @@ function updateInstitutionInterface(institution) {
   applyInstitutionFilters();
 }
 
-const studentDocumentRecords = [
-  { name: "Cédula de ciudadanía", status: "Aprobado", file: "cedula-laura-gomez.pdf", detail: "Aprobado por Dirección · 12 Ago 2026" },
-  { name: "Certificado de afiliación ARL", status: "En revisión", file: "certificado-arl.pdf", detail: "Enviado el 14 Ago 2026 · Pendiente de validación por Dirección" },
-  { name: "Hoja de vida", status: "Sin cargar", file: "", detail: "Carga un archivo PDF legible · Máx. 5 MB" },
-  { name: "Carta de aceptación", status: "Por corregir", file: "carta-aceptacion.pdf", detail: "Observación: La carta no cuenta con el sello institucional visible." },
-];
 
 const estEstado = { periodos: [], periodoId: null, peticion: 0, practica: null };
 const MESES = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"];
@@ -960,7 +1043,9 @@ function studentDashboardContent(practica) {
   const notas = `<aside class="panel grade-card"><span class="eyebrow">${finalizada ? "Calificaciones finales" : "Calificaciones independientes"}</span>${tarjetaNota("Nota docente", practica.docente, practica.evaluaciones?.docente, "Tu docente aún no ha publicado la evaluación.")}${tarjetaNota("Nota asesor", practica.asesor, practica.evaluaciones?.asesor, "Tu asesor aún no ha registrado la evaluación final de sitio.")}</aside>`;
   const estadoTexto = { PENDIENTE_DOCUMENTOS: "Pendiente de documentos", ACTIVA: "En desarrollo", PENDIENTE_EVALUACION: "Pendiente de evaluación", FINALIZADA: "Finalizada", CANCELADA: "Cancelada" }[practica.estado] || practica.estado;
   const titulo = `<section class="welcome"><div><span class="eyebrow">${finalizada ? "Historial de prácticas" : "Mi práctica activa"}</span><h2>${escapar(practica.nivel.nombre)}</h2><p>Periodo académico ${escapar(practica.periodo.codigo)} · ${estadoTexto}</p></div>${control}</section>`;
-  const atajos = `<section class="stats-grid two student-shortcuts ${finalizada ? "readonly" : ""}"><a class="stat-card" href="${pathFor(role, "documentos")}"><span class="stat-icon green">${icon("file")}</span><div><span>Documentos aprobados</span><strong>${d.aprobados}/${d.total}</strong><small>${d.total && d.aprobados >= d.total ? "Expediente completo" : "Ver expediente →"}</small></div></a><a class="stat-card" href="${pathFor(role, bit.enlace)}"><span class="stat-icon blue">${icon("edit")}</span><div><span>Estado de bitácora</span><strong class="journal-state ${bit.clase}">${bit.texto}</strong><small>${bit.detalle}</small></div></a></section>`;
+  const atajos = `<section class="stats-grid two student-shortcuts ${finalizada ? "readonly" : ""}">${d.total && d.aprobados >= d.total
+    ? `<div class="stat-card"><span class="stat-icon green">${icon("file")}</span><div><span>Documentos aprobados</span><strong>${d.aprobados}/${d.total}</strong><small>Expediente completo ✓</small></div></div>`
+    : `<a class="stat-card" href="${pathFor(role, "documentos")}"><span class="stat-icon green">${icon("file")}</span><div><span>Documentos aprobados</span><strong>${d.aprobados}/${d.total}</strong><small>Corregir o completar expediente →</small></div></a>`}<a class="stat-card" href="${pathFor(role, bit.enlace)}"><span class="stat-icon blue">${icon("edit")}</span><div><span>Estado de bitácora</span><strong class="journal-state ${bit.clase}">${bit.texto}</strong><small>${bit.detalle}</small></div></a></section>`;
   const porcentaje = d.total ? Math.round((d.aprobados / d.total) * 100) : 0;
   let progreso;
   if (finalizada) {
@@ -970,12 +1055,15 @@ function studentDashboardContent(practica) {
   } else {
     progreso = `<article class="panel content-block"><h3>Tu progreso</h3><p>Tu expediente fue aprobado. ${practica.bitacora && practica.bitacora.estado !== "BORRADOR" ? "Tu bitácora ya fue entregada." : "Puedes diligenciar tu bitácora."}</p><span class="badge badge-${bit.clase === "complete" ? "success" : "warning"}">${bit.texto}</span><br><br><a class="btn btn-primary" href="${pathFor(role, "bitacora")}">${practica.bitacora && practica.bitacora.estado !== "BORRADOR" ? "Ver bitácora" : "Continuar bitácora"}</a></article>`;
   }
-  return `${titulo}${hero}${atajos}<section class="dashboard-grid">${progreso}${notas}</section>`;
+  queueMicrotask(() => montarGuiaCriterios(practica.nivel?.id, practica.periodo?.id ?? estEstado.periodoId, document));
+  return `${titulo}<div data-guia-criterios></div>${hero}${atajos}<section class="dashboard-grid">${progreso}${notas}</section>`;
 }
 
 /** Panel "Mi práctica" del estudiante. */
 async function studentDashboard() {
   shell(`<p class="muted" style="padding:32px;text-align:center">Cargando tu práctica…</p>`, "Mi práctica");
+  // Antes de que la práctica esté activa (solicitud, documentos, plaza) la guía paso a paso la dibuja el módulo nuevo.
+  if (await montarMiPractica({ badge, escapar, icon, openModal, pathFor, showToast })) return;
   try {
     estEstado.periodos = (await api.get("/periods")).data;
   } catch (error) {
@@ -1007,23 +1095,6 @@ async function cargarPracticaEstudiante() {
   if (sub && codigo) sub.textContent = `Estudiante · Periodo académico ${codigo}`;
 }
 
-function studentDocumentsContent() {
-  const approved = studentDocumentRecords.filter((document) => document.status === "Aprobado").length;
-  const complete = approved === studentDocumentRecords.length;
-  const toneFor = (status) => status === "Aprobado" ? "success" : status === "Por corregir" ? "danger" : status === "En revisión" ? "info" : "neutral";
-  const iconToneFor = (status) => status === "Aprobado" ? "green" : status === "Por corregir" ? "red" : status === "En revisión" ? "blue" : "orange";
-  const actionFor = (document, index) => {
-    if (document.status === "Aprobado") return `<button class="btn btn-secondary" type="button" data-view-document>Ver PDF</button>`;
-    if (document.status === "Por corregir") return `<button class="btn btn-primary" type="button" data-student-document-upload="${index}">Reemplazar archivo</button>`;
-    if (document.status === "En revisión") return `<button class="btn btn-secondary" type="button" data-student-document-upload="${index}">Reemplazar</button>`;
-    return "";
-  };
-  const cards = studentDocumentRecords.map((document, index) => {
-    const empty = document.status === "Sin cargar";
-    return `<article class="document-card document-${toneFor(document.status)}"><div class="document-main"><span class="doc-icon ${iconToneFor(document.status)}">${icon(document.status === "Aprobado" ? "check" : "file")}</span><div><h3>${document.name}</h3><p>${document.file || "Aún no has cargado este documento"}</p></div>${badge(document.status, toneFor(document.status))}${actionFor(document, index)}</div>${empty ? `<button class="document-upload-zone" type="button" data-student-document-upload="${index}">${icon("upload")}<span><strong>Arrastra tu archivo aquí o selecciónalo</strong><small>Formato PDF · Máx. 5 MB</small></span></button>` : `<div class="document-audit ${document.status === "Por corregir" ? "needs-correction" : ""}">${document.status === "Por corregir" ? icon("alert") : icon(document.status === "Aprobado" ? "check" : "clock")}<span>${document.detail}</span></div>`}</article>`;
-  }).join("");
-  return `<header class="page-title"><div><span class="eyebrow">Expediente · Práctica III · 2026-II</span><h2>Documentos de práctica</h2><p>Estos soportes pertenecen exclusivamente a tu Práctica III en la I.E. San José.</p></div>${badge(`${approved} de ${studentDocumentRecords.length} aprobados`, complete ? "success" : "warning")}</header>${complete ? `<div class="document-complete-banner">${icon("check")}<div><strong>Tu expediente documental está completo y verificado.</strong><span>Ya puedes continuar con el diligenciamiento de tus bitácoras.</span></div></div>` : `<div class="notice">Tu bitácora se habilitará cuando Dirección apruebe los ${studentDocumentRecords.length} documentos. Atiende primero los archivos marcados como “Por corregir” o “Sin cargar”.</div>`}<section class="document-list">${cards}</section>`;
-}
 
 /** Pantalla de documentos legales del estudiante. */
 function documentsView() {
@@ -1031,24 +1102,6 @@ function documentsView() {
   montarDocumentosEstudiante({ badge, escapar, icon, showToast });
 }
 
-function uploadStudentDocument(index, file) {
-  if (!file) return;
-  if (file.type !== "application/pdf" && !file.name.toLowerCase().endsWith(".pdf")) {
-    showToast("Selecciona un archivo en formato PDF");
-    return;
-  }
-  if (file.size > 5 * 1024 * 1024) {
-    showToast("El archivo supera el tamaño máximo de 5 MB");
-    return;
-  }
-  const documentRecord = studentDocumentRecords[index];
-  if (!documentRecord) return;
-  documentRecord.status = "En revisión";
-  documentRecord.file = file.name;
-  documentRecord.detail = "Archivo enviado hoy · Pendiente de validación por Dirección";
-  document.querySelector(".page").innerHTML = studentDocumentsContent();
-  showToast("Archivo enviado para revisión");
-}
 
 /** Pantalla de la bitácora del estudiante. */
 function journalView() {
@@ -1082,29 +1135,18 @@ function accountView() {
 
 // Tabla de vistas: "rol:vista" → función que la dibuja.
 const renderers = {
-  "director:dashboard": directorDashboard, "director:usuarios": usersView, "director:plantillas": templatesView, "director:asignaciones": assignmentsView, "director:auditoria": auditView,
+  "director:dashboard": directorDashboard, "director:solicitudes": requestsView, "director:seguimiento": seguimientoView, "director:docentes": levelTeachersView, "director:periodos": periodsView, "director:reportes": reportsView, "director:requisitos": requirementsView, "director:usuarios": usersView, "director:plantillas": templatesView, "director:auditoria": auditView,
   "director:perfil": userProfileView, "director:institucion": institutionProfileView,
   "director:asesor-perfil": advisorProfileView,
   "director:practica": studentPracticeDetailView,
   "estudiante:dashboard": studentDashboard, "estudiante:documentos": documentsView, "estudiante:bitacora": journalView,
   "asesor:dashboard": evaluatorDashboard, "asesor:evaluacion": evaluationView,
-  "docente:dashboard": evaluatorDashboard, "docente:evaluacion": evaluationView,
+  "docente:dashboard": evaluatorDashboard, "docente:grupo": groupView, "docente:evaluacion": evaluationView,
 };
 
 // Dibuja la vista actual (o la cuenta si la combinación no existe).
 (renderers[`${role}:${view}`] || accountView)();
 
-// Cambio de rol activo: se valida en el servidor y se redirige al panel del nuevo rol.
-document.querySelector("#role-switch")?.addEventListener("change", async (event) => {
-  const destino = event.target.value;
-  try {
-    await elegirRol(ROL_DE_PAGINA[destino]);
-    window.location.assign(pathFor(destino, "dashboard"));
-  } catch (error) {
-    event.target.value = role;
-    showToast(error.message);
-  }
-});
 // Cerrar sesión.
 document.querySelector(".logout")?.addEventListener("click", () => cerrarSesion());
 // Cambio de periodo en el dashboard del director.
@@ -1167,6 +1209,8 @@ document.querySelectorAll("[data-tab]").forEach((tab) => tab.addEventListener("c
   if (newButton) newButton.textContent = showInstitutions ? "+ Nueva institución" : "+ Nuevo usuario";
   if (showInstitutions) applyInstitutionFilters();
 }));
+// Llegar desde el panel con ?pestana=instituciones abre directamente esa pestaña.
+if (new URLSearchParams(window.location.search).get("pestana") === "instituciones") document.querySelector('[data-tab="sites"]')?.click();
 document.querySelectorAll("[data-linked-tab]").forEach((tab) => tab.addEventListener("click", () => {
   const target = tab.dataset.linkedTab;
   document.querySelectorAll("[data-linked-tab]").forEach((item) => {
@@ -1464,14 +1508,6 @@ document.addEventListener("click", (event) => {
     showToast("Evaluación guardada y publicada correctamente");
   }
   if (event.target.closest("[data-finish]")) showToast("Práctica finalizada correctamente");
-  const studentDocumentUpload = event.target.closest("[data-student-document-upload]");
-  if (studentDocumentUpload) {
-    const input = document.createElement("input");
-    input.type = "file";
-    input.accept = ".pdf,application/pdf";
-    input.addEventListener("change", () => uploadStudentDocument(Number(studentDocumentUpload.dataset.studentDocumentUpload), input.files[0]));
-    input.click();
-  }
   if (event.target.closest("[data-upload]")) {
     const input = document.createElement("input"); input.type = "file"; input.accept = ".pdf,image/*"; input.addEventListener("change", () => showToast("Archivo cargado correctamente")); input.click();
   }
@@ -1520,15 +1556,6 @@ document.addEventListener("change", (event) => {
     renderQuestionBank(level);
     showToast(`Preguntas de Práctica ${level} ${enabledControl.checked ? "habilitadas" : "deshabilitadas"}`);
   }
-});
-document.addEventListener("dragover", (event) => {
-  if (event.target.closest("[data-student-document-upload]")) event.preventDefault();
-});
-document.addEventListener("drop", (event) => {
-  const documentZone = event.target.closest("[data-student-document-upload]");
-  if (!documentZone) return;
-  event.preventDefault();
-  uploadStudentDocument(Number(documentZone.dataset.studentDocumentUpload), event.dataTransfer.files[0]);
 });
 document.addEventListener("dragstart", (event) => {
   const item = event.target.closest("[data-draggable-question]");

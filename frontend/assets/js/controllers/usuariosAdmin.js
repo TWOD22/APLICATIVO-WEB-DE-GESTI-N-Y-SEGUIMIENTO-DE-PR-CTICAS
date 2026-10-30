@@ -16,6 +16,7 @@ const NOMBRE_ROL = {
 };
 // Estado del usuario: [texto, color de la insignia].
 const ESTADO_USUARIO = { ACTIVO: ["Activo", "success"], INACTIVO: ["Inactivo", "neutral"], SUSPENDIDO: ["Suspendido", "warning"] };
+const PRACTICA_USUARIO = { SIN_SOLICITUD: ["Sin solicitud enviada", "neutral"], SOLICITUD: ["Solicitud en trámite", "warning"], EN_PRACTICA: ["En práctica", "success"], FINALIZADA: ["Finalizada", "info"], RECHAZADA: ["Rechazada", "danger"] };
 
 // Une el mensaje del error con los detalles de validación del servidor.
 const mensajeDeError = (error) => {
@@ -107,42 +108,57 @@ export async function cambiarEstadoUsuario(ui, usuario, alTerminar, confirmar = 
 export function montarUsuarios(ui) {
   const { badge, escapar, icon, initials, openModal, pathFor, showToast } = ui;
     // Estado local: página, filtros, filas por id y `turno` para descartar respuestas viejas.
-  const estado = { pagina: 1, q: "", rol: "", semestre: "", estado: "", filas: new Map(), turno: 0, catalogos: null };
+  const estado = { pagina: 1, q: "", rol: "", semestre: "", estado: "", practica: "", filas: new Map(), turno: 0, catalogos: null };
+  // Filtros que pueden venir en la dirección (desde las tarjetas del panel): ?rol=…&practica=…
+  const desdeDireccion = new URLSearchParams(window.location.search);
+  for (const [parametro, clave, selector] of [["rol", "rol", "#user-role-filter"], ["practica", "practica", "#user-practice-filter"]]) {
+    const select = document.querySelector(selector);
+    const valor = desdeDireccion.get(parametro);
+    if (select && valor && [...select.options].some((o) => o.value === valor)) { select.value = valor; estado[clave] = valor; }
+  }
   const cuerpo = document.querySelector("#users-table-body");
   if (!cuerpo) return;
 
   // ---------- Listado ----------
   async function cargar() {
     const turno = ++estado.turno;
-    cuerpo.innerHTML = `<tr><td colspan="6" class="muted" style="text-align:center;padding:24px">Cargando usuarios…</td></tr>`;
+    cuerpo.innerHTML = `<tr><td colspan="7" class="muted" style="text-align:center;padding:24px">Cargando usuarios…</td></tr>`;
     try {
       const consulta = { page: estado.pagina, page_size: TAMANO_PAGINA };
       if (estado.q) consulta.q = estado.q;
       if (estado.rol) consulta.rol = estado.rol;
       if (estado.semestre) consulta.semestre = estado.semestre;
       if (estado.estado) consulta.estado = estado.estado;
+      if (estado.practica) consulta.practica = estado.practica;
       const { data, meta } = await api.get("/users", consulta);
       if (turno !== estado.turno) return;
       estado.filas = new Map(data.map((u) => [u.id, u]));
       pintar(data, meta);
     } catch (error) {
       if (turno !== estado.turno) return;
-      cuerpo.innerHTML = `<tr><td colspan="6" style="text-align:center;padding:24px"><p class="form-error" role="alert">${escapar(mensajeDeError(error))}</p><button class="btn btn-secondary" type="button" data-u-retry>Reintentar</button></td></tr>`;
+      cuerpo.innerHTML = `<tr><td colspan="7" style="text-align:center;padding:24px"><p class="form-error" role="alert">${escapar(mensajeDeError(error))}</p><button class="btn btn-secondary" type="button" data-u-retry>Reintentar</button></td></tr>`;
       document.querySelector("[data-pagination-summary]").textContent = "";
       document.querySelector("[data-pagination-buttons]").innerHTML = "";
     }
   }
 
+    /** Situación de práctica del estudiante (los demás roles no tienen). */
+  function celdaPractica(u) {
+    if (!u.practica_estado) return `<span class="muted">—</span>`;
+    const [texto, tono] = PRACTICA_USUARIO[u.practica_estado] || [u.practica_estado, "neutral"];
+    return `${badge(texto, tono)}${u.practica_nivel ? `<small class="muted"> ${escapar(u.practica_nivel)}</small>` : ""}`;
+  }
+
     /** Dibuja la tabla de usuarios y la paginación. */
   function pintar(filas, meta) {
     if (!filas.length) {
-      cuerpo.innerHTML = `<tr><td colspan="6" class="muted" style="text-align:center;padding:24px">No se encontraron usuarios con esos filtros.</td></tr>`;
+      cuerpo.innerHTML = `<tr><td colspan="7" class="muted" style="text-align:center;padding:24px">No se encontraron usuarios con esos filtros.</td></tr>`;
     } else {
       cuerpo.innerHTML = filas.map((u) => {
         const [textoEstado, tono] = ESTADO_USUARIO[u.estado] || [u.estado, "neutral"];
         const roles = (u.roles || []).map((r) => NOMBRE_ROL[r] || r).join(" · ") || "—";
         const activo = u.estado === "ACTIVO";
-        return `<tr data-u-row="${escapar(u.id)}"><td>${escapar(u.documento)}</td><td><div class="person"><span class="avatar">${escapar(initials(u.nombre_completo))}</span><span><a class="profile-link" href="${pathFor("director", "perfil")}?id=${escapar(u.id)}">${escapar(u.nombre_completo)}</a><small>${escapar(u.correo)}</small></span></div></td><td><strong>${escapar(roles)}</strong></td><td><strong>${u.semestre ? `${u.semestre}° semestre` : "—"}</strong></td><td>${badge(textoEstado, tono)}</td><td><div class="row-actions"><a class="btn btn-secondary" href="${pathFor("director", "perfil")}?id=${escapar(u.id)}">Ver perfil</a><button class="btn btn-secondary" type="button" data-u-edit="${escapar(u.id)}">Editar</button><button class="btn ${activo ? "btn-danger" : "btn-secondary"}" type="button" data-u-status="${escapar(u.id)}">${activo ? "Deshabilitar" : "Habilitar"}</button></div></td></tr>`;
+        return `<tr data-u-row="${escapar(u.id)}"><td>${escapar(u.documento)}</td><td><div class="person"><span class="avatar">${escapar(initials(u.nombre_completo))}</span><span><a class="profile-link" href="${pathFor("director", "perfil")}?id=${escapar(u.id)}">${escapar(u.nombre_completo)}</a><small>${escapar(u.correo)}</small></span></div></td><td><strong>${escapar(roles)}</strong></td><td><strong>${u.semestre ? `${u.semestre}° semestre` : "—"}</strong></td><td>${celdaPractica(u)}</td><td>${badge(textoEstado, tono)}</td><td><div class="row-actions"><a class="btn btn-secondary" href="${pathFor("director", "perfil")}?id=${escapar(u.id)}">Ver perfil</a><button class="btn btn-secondary" type="button" data-u-edit="${escapar(u.id)}">Editar</button><button class="btn ${activo ? "btn-danger" : "btn-secondary"}" type="button" data-u-status="${escapar(u.id)}">${activo ? "Deshabilitar" : "Habilitar"}</button></div></td></tr>`;
       }).join("");
     }
     const desde = (meta.page - 1) * meta.page_size + 1;
@@ -171,6 +187,7 @@ export function montarUsuarios(ui) {
   filtro("#user-role-filter", "rol");
   filtro("#user-semester-filter", "semestre", (v) => parseInt(v, 10));
   filtro("#user-status-filter", "estado");
+  filtro("#user-practice-filter", "practica");
 
   // ---------- Catálogos para el formulario de alta ----------
   async function catalogos() {

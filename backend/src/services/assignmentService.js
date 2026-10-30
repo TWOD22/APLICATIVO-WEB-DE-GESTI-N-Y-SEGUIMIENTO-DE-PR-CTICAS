@@ -6,7 +6,9 @@
  */
 import { crearNotificacion, registrarAuditoria } from "../adapters/firestoreAdapter.js";
 import { withTransaction } from "../database/transaction.js";
+import * as documentRepository from "../repositories/documentRepository.js";
 import * as evaluationRepository from "../repositories/evaluationRepository.js";
+import * as levelTeacherRepository from "../repositories/levelTeacherRepository.js";
 import * as assignmentRepository from "../repositories/assignmentRepository.js";
 import * as periodRepository from "../repositories/periodRepository.js";
 import { ApiError } from "../utils/apiError.js";
@@ -134,12 +136,17 @@ async function notificarParticipantes(fila, { estudiante, docente, asesor }) {
 
 // ───────────────────────── Casos de uso ─────────────────────────
 
-/** Lista asignaciones; por defecto muestra el periodo activo. */
+// Prácticas que ya tienen plaza definida: es lo que muestra «Asignaciones». Las solicitudes en trámite
+// (ENVIADA, DEVUELTA, DOCUMENTOS_APROBADOS, PLAZA_SELECCIONADA) viven en la bandeja de solicitudes del Director.
+const ESTADOS_ASIGNADAS = ["PENDIENTE_DOCUMENTOS", "ACTIVA", "PENDIENTE_EVALUACION", "FINALIZADA", "CANCELADA"];
+
+/** Lista asignaciones; por defecto muestra el periodo activo y solo las que ya tienen plaza (se puede pedir un `estado` concreto). */
 export async function listar(filtros, auth) {
   const alcance = alcanceDe(auth);
   let periodoId = filtros.periodo_id;
   if (!periodoId && !filtros.todos_los_periodos) periodoId = (await periodRepository.buscarActivo())?.id;
-  return assignmentRepository.listar({ ...filtros, periodo_id: periodoId }, alcance);
+  const estados = filtros.estado ? undefined : ESTADOS_ASIGNADAS;
+  return assignmentRepository.listar({ ...filtros, estados, periodo_id: periodoId }, alcance);
 }
 
 /** Detalle de una asignación dentro del alcance del usuario. */
@@ -361,4 +368,178 @@ export async function cancelar(id, { motivo, confirmar = false }, contexto) {
   const aviso = { tipo: "ASIGNACION_CANCELADA", titulo: "Una asignación de práctica fue cancelada" };
   await notificarParticipantes(despues, { estudiante: aviso, docente: despues.docente_id ? aviso : null, asesor: despues.asesor_id ? aviso : null });
   return mapearAsignacion(despues);
+}
+
+// ───────────────────────── Solicitudes de práctica (flujo v2, lado del Director) ─────────────────────────
+
+/** Estados en los que una solicitud sigue abierta y el Director puede rechazarla. */
+const ESTADOS_SOLICITUD_ABIERTA = ["ENVIADA", "DEVUELTA", "DOCUMENTOS_APROBADOS", "PLAZA_SELECCIONADA"];
+
+/** Estados desde los que se puede confirmar. Los dos últimos son de solicitudes creadas antes del flujo v2.1. */
+const ESTADOS_ASIGNABLES = ["ENVIADA", "DOCUMENTOS_APROBADOS", "PLAZA_SELECCIONADA"];
+
+/** Bandeja de solicitudes del Director (por defecto, las que siguen abiertas). */
+export async function listarSolicitudes(filtros, auth) {
+  if (auth.rolActivo !== ROLES.DIRECTOR_PROGRAMA) throw ApiError.prohibido();
+  const periodoId = filtros.periodo_id ?? (await periodRepository.buscarActivo())?.id;
+  const resultado = await assignmentRepository.listar(
+    { ...filtros, estado: undefined, estados: filtros.estado ? [filtros.estado] : ESTADOS_SOLICITUD_ABIERTA, periodo_id: periodoId },
+    ALCANCE.director()
+  );
+  // Cada fila lleva el avance de su expediente: la bandeja distingue «por revisar» de «lista para asignar».
+  const expedientes = await documentRepository.resumenesDeExpedientes(resultado.filas.map((f) => f.id));
+  return { ...resultado, filas: resultado.filas.map((f) => ({ ...f, expediente: expedientes.get(f.id) ?? null })) };
+}
+
+/**
+ * "Doble pantalla" del Director: la solicitud, el docente que le corresponde por nivel y los asesores
+ * de la institución con cuántos practicantes tiene cada uno (informativo, sin cupos).
+ */
+export async function asesoresDeSolicitud(id, { institucion_id }) {
+  const fila = await cargarFilaODetener(id);
+  const institucionId = institucion_id ?? fila.institucion_solicitada_id;
+  if (!institucionId) {
+    throw ApiError.reglaDeNegocio("La solicitud todavía no tiene una plaza elegida.", "SITE_NOT_SELECTED");
+  }
+  const institucion = await assignmentRepository.buscarInstitucion(institucionId);
+  if (!institucion) throw ApiError.reglaDeNegocio("La institución no existe.", "INSTITUTION_NOT_FOUND");
+  const [asesores, vigente] = await Promise.all([
+    assignmentRepository.listarAsesoresDeInstitucion({ institucionId, periodoId: fila.periodo_id }),
+    levelTeacherRepository.buscarVigente(fila.nivel_id, fila.periodo_id),
+  ]);
+  const docente = vigente ? await assignmentRepository.buscarPersonaConRoles(vigente.docente_id) : null;
+  return {
+    solicitud: mapearAsignacion(fila),
+    institucion: { id: institucion.id, nombre: institucion.nombre },
+    docente: docente ? { id: docente.id, nombres: docente.nombres, apellidos: docente.apellidos } : null,
+    asesores,
+    asesor_unico: asesores.length === 1 ? asesores[0].id : null,
+  };
+}
+
+/**
+ * "Confirmar y asignar": el Director valida la plaza (o la cambia con motivo), define el asesor y la práctica queda ACTIVA.
+ * El docente sale de la configuración por nivel; si hay un solo asesor en la institución se usa automáticamente.
+ */
+export async function confirmarSolicitud(id, datos, contexto) {
+  const fila = await cargarFilaODetener(id);
+  if (!ESTADOS_ASIGNABLES.includes(fila.estado)) {
+    throw ApiError.reglaDeNegocio(
+      fila.estado === "DEVUELTA"
+        ? "La solicitud está devuelta: el estudiante debe corregir sus documentos y reenviarla."
+        : "La solicitud no está lista para asignar.",
+      "REQUEST_NOT_READY",
+      [{ estado_actual: fila.estado }]
+    );
+  }
+  const expediente = await documentRepository.resumenExpediente(id);
+  if (expediente.aprobados_obligatorios !== expediente.total_obligatorios) {
+    throw ApiError.reglaDeNegocio(
+      "Aprueba todos los documentos obligatorios antes de asignar.",
+      "DOCUMENTS_NOT_APPROVED",
+      [{ aprobados: expediente.aprobados_obligatorios, total: expediente.total_obligatorios }]
+    );
+  }
+  const institucionId = datos.institucion_id ?? fila.institucion_solicitada_id;
+  if (!institucionId) throw ApiError.reglaDeNegocio("La solicitud no tiene plaza elegida.", "SITE_NOT_SELECTED");
+  const cambiaPlaza = institucionId !== fila.institucion_solicitada_id;
+  if (cambiaPlaza && !datos.motivo_cambio_plaza) {
+    throw ApiError.reglaDeNegocio(
+      "Si cambias la plaza que eligió el estudiante debes indicar el motivo.",
+      "PLACE_CHANGE_REASON_REQUIRED"
+    );
+  }
+  await validarInstitucion(institucionId);
+
+  // Un docente por nivel y periodo: lo configura el Director antes de asignar.
+  const docenteNivel = await levelTeacherRepository.buscarVigente(fila.nivel_id, fila.periodo_id);
+  if (!docenteNivel) {
+    throw ApiError.reglaDeNegocio(
+      `El nivel ${fila.nivel_nombre} no tiene docente en este periodo. Configúralo antes de asignar.`,
+      "LEVEL_WITHOUT_TEACHER"
+    );
+  }
+  await validarDocente(docenteNivel.docente_id);
+
+  let asesorId = datos.asesor_sitio_id ?? null;
+  if (asesorId) {
+    await validarAsesor(asesorId, institucionId, fila.periodo_id);
+  } else {
+    const asesores = await assignmentRepository.listarAsesoresDeInstitucion({ institucionId, periodoId: fila.periodo_id });
+    if (asesores.length === 0) {
+      throw ApiError.reglaDeNegocio("La institución no tiene asesores activos en este periodo.", "NO_ADVISOR_AVAILABLE");
+    }
+    if (asesores.length > 1) {
+      throw ApiError.reglaDeNegocio(
+        "La institución tiene varios asesores: elige uno.",
+        "ADVISOR_REQUIRED",
+        asesores.map((a) => ({ asesor_id: a.id, nombre: `${a.nombres} ${a.apellidos}`, practicantes: a.practicantes }))
+      );
+    }
+    asesorId = asesores[0].id;
+  }
+
+  const confirmada = await withTransaction((client) =>
+    assignmentRepository.confirmarSolicitud(
+      {
+        id, institucionId, docenteId: docenteNivel.docente_id, asesorId,
+        motivoCambioPlaza: cambiaPlaza ? datos.motivo_cambio_plaza : null,
+        directorId: contexto.actor.usuario_id, fecha_inicio: datos.fecha_inicio, fecha_fin: datos.fecha_fin,
+      },
+      client
+    )
+  );
+  if (!confirmada) {
+    throw ApiError.conflicto("La solicitud cambió mientras la asignabas. Recarga e inténtalo de nuevo.", "REQUEST_CHANGED");
+  }
+
+  const despues = await cargarFilaODetener(id);
+  await registrarAuditoria({
+    contexto,
+    accion: "SOLICITUD_ASIGNADA",
+    entidad: "asignaciones_practica",
+    entidad_id: id,
+    valor_anterior: { estado: fila.estado, institucion_solicitada_id: fila.institucion_solicitada_id },
+    valor_nuevo: {
+      estado: "ACTIVA", institucion_id: institucionId, docente_supervisor_id: docenteNivel.docente_id, asesor_sitio_id: asesorId,
+      ...(cambiaPlaza ? { motivo_cambio_plaza: datos.motivo_cambio_plaza } : {}),
+    },
+  });
+  await notificarParticipantes(despues, {
+    estudiante: {
+      tipo: "ASIGNACION_CREADA", titulo: "Tu práctica fue asignada",
+      mensaje: `${despues.nivel_nombre} · ${despues.institucion_nombre}${cambiaPlaza ? " (Dirección cambió la plaza que elegiste)" : ""}`,
+    },
+    docente: { tipo: "ASIGNACION_NUEVA_TUTORIA", titulo: "Se te asignó un estudiante para supervisar" },
+    asesor: { tipo: "ASIGNACION_NUEVO_PRACTICANTE", titulo: "Se te asignó un practicante en tu institución" },
+  });
+  return mapearAsignacion(despues);
+}
+
+/** El Director rechaza una solicitud abierta con su motivo; el estudiante podrá volver a solicitar. */
+export async function rechazarSolicitud(id, { motivo }, contexto) {
+  const fila = await cargarFilaODetener(id);
+  if (!ESTADOS_SOLICITUD_ABIERTA.includes(fila.estado)) {
+    throw ApiError.reglaDeNegocio("Solo se pueden rechazar solicitudes que siguen abiertas.", "REQUEST_NOT_REJECTABLE", [{ estado_actual: fila.estado }]);
+  }
+  const rechazada = await withTransaction((client) => assignmentRepository.rechazarSolicitud(id, motivo, client));
+  if (!rechazada) {
+    throw ApiError.conflicto("La solicitud cambió mientras la rechazabas. Recarga e inténtalo de nuevo.", "REQUEST_CHANGED");
+  }
+  await registrarAuditoria({
+    contexto,
+    accion: "SOLICITUD_RECHAZADA",
+    entidad: "asignaciones_practica",
+    entidad_id: id,
+    valor_anterior: { estado: fila.estado },
+    valor_nuevo: { estado: "RECHAZADA", motivo },
+  });
+  const estudiante = mapearAsignacion(fila, { conUid: true }).estudiante;
+  await notificar(estudiante, {
+    tipo: "SOLICITUD_RECHAZADA",
+    titulo: "Tu solicitud de práctica fue rechazada",
+    mensaje: motivo,
+    asignacionId: id,
+  });
+  return mapearAsignacion(await cargarFilaODetener(id));
 }

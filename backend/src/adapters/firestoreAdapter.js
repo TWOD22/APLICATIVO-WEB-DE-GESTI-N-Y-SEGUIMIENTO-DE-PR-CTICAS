@@ -10,6 +10,7 @@ import { randomUUID } from "node:crypto";
 import { obtenerFirestore, marcaDeTiempoServidor, firebaseConfigurado } from "../config/firebase.js";
 import { logger } from "../config/logger.js";
 import { ApiError } from "../utils/apiError.js";
+import { emitirAuditoria, emitirNotificacion, modoEventos } from "./eventosAdapter.js";
 
 /**
  * Registra un evento inmutable en /auditoria (solo Firebase Admin puede escribir).
@@ -24,6 +25,8 @@ export async function registrarAuditoria({
   valor_anterior = null,
   valor_nuevo = null,
 }) {
+  // Con EVENTS_MODE=outbox el evento va al servicio de notificaciones y auditoría en lugar de escribirse aquí.
+  if (modoEventos() === "outbox") return emitirAuditoria({ contexto, accion, entidad, entidad_id, valor_anterior, valor_nuevo });
   const evento = {
     actor_usuario_id: contexto?.actor?.usuario_id ?? null,
     actor_firebase_uid: contexto?.actor?.firebase_uid ?? null,
@@ -54,6 +57,7 @@ export async function registrarAuditoria({
 
 /** Crea una notificación en tiempo real para un usuario (mejor esfuerzo). */
 export async function crearNotificacion(firebaseUid, { tipo, titulo, mensaje, ruta_destino = null, prioridad = "normal", entidad = null }) {
+  if (modoEventos() === "outbox") return emitirNotificacion(firebaseUid, { tipo, titulo, mensaje, ruta_destino, prioridad, entidad });
   try {
     if (!firebaseConfigurado()) return false;
     await obtenerFirestore()
@@ -160,6 +164,41 @@ export async function marcarTodasLeidas(firebaseUid) {
     return total;
   } catch (error) {
     throw errorDeNotificaciones(error, "No se pudieron marcar las notificaciones como leídas. Intenta de nuevo.");
+  }
+}
+
+/** Elimina una notificación de la bandeja del usuario. Devuelve false si no existía. */
+export async function eliminarNotificacion(firebaseUid, notificacionId) {
+  try {
+    if (!firebaseConfigurado()) throw new Error("Firestore no configurado");
+    const referencia = elementos(firebaseUid).doc(notificacionId);
+    const instantanea = await referencia.get();
+    if (!instantanea.exists) return false;
+    await referencia.delete();
+    return true;
+  } catch (error) {
+    throw errorDeNotificaciones(error, "No se pudo borrar la notificación. Intenta de nuevo.");
+  }
+}
+
+/** Elimina todas las notificaciones del usuario (por lotes de 400). Devuelve cuántas borró. */
+export async function eliminarTodasNotificaciones(firebaseUid) {
+  try {
+    if (!firebaseConfigurado()) throw new Error("Firestore no configurado");
+    const firestore = obtenerFirestore();
+    let total = 0;
+    for (;;) {
+      const lista = await elementos(firebaseUid).limit(400).get();
+      if (lista.empty) break;
+      const lote = firestore.batch();
+      for (const doc of lista.docs) lote.delete(doc.ref);
+      await lote.commit();
+      total += lista.size;
+      if (lista.size < 400) break;
+    }
+    return total;
+  } catch (error) {
+    throw errorDeNotificaciones(error, "No se pudieron borrar las notificaciones. Intenta de nuevo.");
   }
 }
 

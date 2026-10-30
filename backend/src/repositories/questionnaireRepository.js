@@ -231,3 +231,19 @@ export async function retirarPregunta(id, db = pool) {
 export async function fijarOrden(preguntaId, orden, db = pool) {
   await db.query(`UPDATE preguntas SET orden_visual = $2 WHERE id = $1`, [preguntaId, orden]);
 }
+
+/**
+ * Efecto de publicar una versión nueva en un nivel: cuántas bitácoras la recibirán (aún sin cuestionario y editables)
+ * y cuántas conservan la versión con la que nacieron. Las bitácoras ya enviadas no cambian nunca.
+ */
+export async function contarImpactoDePublicar(nivelId, db = pool) {
+  const { rows } = await db.query(
+    `SELECT count(*) FILTER (WHERE b.cuestionario_id IS NULL AND b.estado IN ('BLOQUEADA', 'BORRADOR', 'DEVUELTA'))::int AS recibiran,
+            count(*) FILTER (WHERE b.cuestionario_id IS NOT NULL)::int AS conservan
+       FROM bitacoras b
+       JOIN asignaciones_practica a ON a.id = b.asignacion_practica_id
+      WHERE a.nivel_practica_id = $1 AND b.eliminado_en IS NULL AND a.estado NOT IN ('CANCELADA', 'RECHAZADA')`,
+    [nivelId]
+  );
+  return rows[0];
+}

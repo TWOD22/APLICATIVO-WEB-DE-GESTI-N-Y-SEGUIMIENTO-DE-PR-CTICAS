@@ -19,7 +19,7 @@ Arquitectura por capas: `routes → middlewares → controllers → services →
 | 7.4 Integración del frontend | ⏳ |
 | 8. Seguridad, reglas de Firestore/Storage, despliegue, CI/CD | ⏳ |
 
-El modelo completo (23 tablas) ya está migrado, incluidas las reglas de integridad de las fases siguientes.
+El modelo completo (27 tablas) ya está migrado, incluidas las reglas de integridad de las fases siguientes y las tablas del flujo de solicitud v2 (`docentes_niveles`, `evaluaciones_historial`, `guias_criterios`, `eventos_salientes`).
 
 ## Puesta en marcha
 
@@ -56,7 +56,8 @@ busca al usuario en PostgreSQL, verifica que esté `ACTIVO` y calcula sus roles 
 | `POST /practice-assignments/:id/legal-documents/:tipoId/upload` | Estudiante (su propia práctica) |
 | `POST /legal-documents/:id/review`, `POST /practice-assignments/:id/legal-documents/approve-all`, `GET /legal-documents/expedientes` | Director |
 | `GET /legal-documents/:id/download-url` | Director, Estudiante (solo el suyo) |
-| `GET/POST /questionnaires`, `GET/PATCH /questionnaires/:id`, `POST /questionnaires/:id/publish`, `PATCH /questionnaires/:id/enabled`, `POST /questionnaires/:id/questions`, `POST /questionnaires/:id/reorder`, `PATCH/DELETE /questions/:id` | Director |
+| `GET /questionnaires`, `GET /questionnaires/:id` | Director y Docente (solo consulta; `gestionable`/`editable` indican si es de su nivel) |
+| `POST /questionnaires`, `PATCH /questionnaires/:id`, `GET /questionnaires/:id/publish-impact`, `POST /questionnaires/:id/publish`, `PATCH /questionnaires/:id/enabled`, `POST /questionnaires/:id/questions`, `POST /questionnaires/:id/reorder`, `PATCH/DELETE /questions/:id` | Docente asignado a ese nivel en el periodo activo (`403 NOT_LEVEL_TEACHER` si no) |
 | `GET /practice-assignments/:id/logbook`, `GET /logbooks/:id` | Estudiante (la suya; se crea la primera vez), Director, y Docente/Asesor **solo si ya fue enviada** y es de su alcance |
 | `POST /practice-assignments/:id/logbook` | Estudiante (obtener o crear: `201` la primera vez, `200` después) |
 | `PUT /logbooks/:id/draft`, `POST /logbooks/:id/submit` | Estudiante |
@@ -65,7 +66,8 @@ busca al usuario en PostgreSQL, verifica que esté `ACTIVO` y calcula sus roles 
 | `POST /logbooks/:id/return` | Director |
 | `GET /evaluations`, `GET /evaluations/:id` | Docente y Asesor (solo su evaluación en sus estudiantes), Estudiante (solo lo **publicado**), Director (todas) |
 | `PUT /evaluations/:id/draft`, `POST /evaluations/:id/publish` | Docente (nota académica) y Asesor (nota de sitio) |
-| `POST /evaluations/:id/reopen`, `POST /practice-assignments/:id/finish` | Director |
+| `POST /practice-assignments/:id/finish` | Director |
+| `POST /evaluations/:id/correct` | Docente supervisor, Asesor de sitio (solo su propia evaluación) |
 | `GET /logbooks/:id/export` | Estudiante, Director, Docente y Asesor (con su alcance): descarga el PDF |
 | `GET /dashboard`, `GET /dashboard/practices` | Todos los roles; cada uno ve solo lo suyo (ver «Dashboards») |
 | `GET /notifications`, `PATCH /notifications/:id/read`, `PATCH /notifications/read-all` | Cualquier rol (solo la bandeja propia) |
@@ -98,6 +100,12 @@ defecto las preguntas de la versión habilitada (`"sin_copia": true` para empeza
 Un borrador se edita libremente; `publish` lo deja **inmutable** (el servicio y un trigger de PostgreSQL lo impiden) y lo habilita,
 deshabilitando la versión anterior (que se conserva). Solo una versión por nivel puede estar habilitada. Preguntas: `ABIERTA`,
 `CERRADA_UNICA` o `CERRADA_MULTIPLE` (2 a 10 opciones, sin repetir). Eliminar una pregunta del borrador es lógico y renumera el orden.
+
+**Quién configura (flujo v2).** El cuestionario lo crea, edita, publica y habilita el docente asignado al nivel en el periodo activo
+(`docentes_niveles`); Dirección solo consulta y recibe un aviso cuando el docente publica, habilita o deshabilita. Un docente puede
+copiar preguntas (`copiar_de`) de cualquier versión publicada, incluso de otro nivel. Antes de publicar, `GET …/publish-impact` dice
+cuántas bitácoras sin cuestionario lo recibirán (`recibiran`) y cuántas conservan su versión (`conservan`); la respuesta de `publish`
+trae el mismo `impacto`. La bitácora funciona aunque el nivel no tenga cuestionario habilitado.
 
 **Bitácora.** Se crea la primera vez que el estudiante la consulta: `BLOQUEADA` si faltan documentos aprobados y `BORRADOR` si la
 práctica ya está activa. Al estar en `BORRADOR` toma el cuestionario habilitado **en ese momento**; las bitácoras ya iniciadas
@@ -142,7 +150,7 @@ Quien no tiene acceso recibe `404 EVALUATION_NOT_FOUND` (no se revela que existe
 **Cola.** `GET /evaluations` (filtros `estado`, `tipo`, `q`, `periodo_id`, `asignacion_id`, paginación) devuelve primero las `PENDIENTE`,
 luego `BORRADOR` y `PUBLICADA`. `meta.resumen` trae los contadores por estado (ignoran el filtro `estado`) para las pestañas del tablero.
 `GET /evaluations/:id` devuelve la evaluación y, a Dirección y evaluadores, la entrega en solo lectura (`bitacora`: reflexión,
-evidencias, preguntas y respuestas). `editable` y `reabrible` dicen qué botones mostrar.
+evidencias, preguntas y respuestas). `editable` y `corregible` dicen qué botones mostrar.
 
 **Borrador.** `PUT /evaluations/:id/draft` con `{ nota, retroalimentacion }` (reemplaza ambos; lo omitido queda vacío). Puede estar
 incompleto. La nota es opcional aquí pero, si se envía, debe estar entre **0.00 y 5.00 con máximo dos decimales**. La primera vez la
@@ -154,19 +162,30 @@ nota responde `422 GRADE_REQUIRED`. Es transaccional (bloquea práctica → bit�
 para cerrar). Una evaluación publicada es **inmutable** (el servicio y un trigger lo impiden): editarla o publicarla otra vez da
 `409 EVALUATION_ALREADY_PUBLISHED`.
 
-**Reapertura.** `POST /evaluations/:id/reopen` (`{ motivo }`, solo Director) vuelve la evaluación a `BORRADOR` conservando su contenido
-para corregirlo; la bitácora regresa a `EN_EVALUACION` y el estudiante deja de ver esa nota hasta que se publique de nuevo. El motivo
-queda en la fila (`reabierta_en`, `motivo_reapertura`) y en la auditoría. Con la práctica finalizada responde `422 PRACTICE_FINISHED`.
+**Corrección de nota.** `POST /evaluations/:id/correct` (`{ nota, retroalimentacion?, motivo }`, solo el docente o asesor dueño de esa
+evaluación) cambia la nota ya publicada con la práctica en `PENDIENTE_EVALUACION`. La versión reemplazada queda en
+`evaluaciones_historial` (inmutable) y la nota nueva queda publicada de inmediato; el detalle devuelve `historial` (no al estudiante).
+Avisa al estudiante y a Dirección y audita. Sin cambios reales responde `422 NO_CHANGES`; con la práctica finalizada, `422 PRACTICE_FINISHED`.
+Dirección ya no reabre evaluaciones. `reabierta_en` y `motivo_reapertura` (migración `…010`) se reutilizan como "última corrección".
 
 **Cierre.** `POST /practice-assignments/:id/finish` (solo Director) exige práctica `PENDIENTE_EVALUACION` y las dos evaluaciones
 publicadas (`422 EVALUATIONS_PENDING` con el detalle de las que faltan); pasa la asignación a `FINALIZADA`, audita y avisa a estudiante,
 docente y asesor. Es manual y de una sola vez (`409 ASSIGNMENT_ALREADY_FINISHED`). Cerrar no vuelve a exigir convenios ni vinculaciones
-vigentes (el periodo pudo terminar). Después ya no se editan, publican ni reabren evaluaciones, ni se reasigna o cancela la práctica.
+vigentes (el periodo pudo terminar). Después ya no se editan, publican ni corrigen evaluaciones, ni se reasigna o cancela la práctica.
 
 **Cambios de evaluador.** Si Dirección cambia al docente o al asesor mientras su evaluación está sin publicar, esta pasa al nuevo
 evaluador y vuelve a `PENDIENTE` (no hereda el borrador del anterior, que pierde el acceso). Una evaluación ya publicada no se reemplaza
-(`EVALUATOR_LOCKED`) salvo que Dirección la reabra. La migración `…010` agrega `reabierta_en`, `motivo_reapertura` y la restricción
+(`EVALUATOR_LOCKED`); la corrige su propio evaluador. La migración `…010` agrega `reabierta_en`, `motivo_reapertura` y la restricción
 `ck_bitacoras_evaluada`.
+
+### Guía de criterios (flujo v2, Fase 3b)
+
+`POST /levels/:nivelId/periods/:periodoId/criteria-guide` (cuerpo binario `application/pdf`, nombre en `X-File-Name`; solo el docente
+asignado a ese nivel y periodo en `docentes_niveles`, `403 NOT_LEVEL_TEACHER` si no). Valida PDF real (firma, máx. 10 MB) y
+periodo no cerrado (`422 PERIOD_CLOSED`). Cada carga crea una versión nueva en `guias_criterios`; la anterior queda histórica
+(una sola vigente). `GET` de la misma ruta devuelve la guía vigente con URL firmada (`guia: null` si aún no hay) y, para Dirección y
+el docente, `versiones`. Lo leen Dirección, el docente del nivel, el estudiante con práctica en ese nivel y periodo y el asesor con
+practicantes en él; los demás reciben `404 GUIDE_NOT_FOUND`.
 
 ### Notificaciones (Fase 7.1)
 
@@ -198,6 +217,40 @@ asignación y: Director y estudiante → `bitacora`, `documentos` (estado del ex
 (`SIN_ENTREGA`, `PENDIENTE`, `PARCIAL`, `COMPLETA`); docente y asesor → solo `mi_evaluacion` (`SIN_ENTREGA` si aún no entregan) y un `bitacora.estado`
 simple (`EN_DESARROLLO` hasta que se envía), sin expediente legal ni la evaluación del otro. La nota solo aparece cuando está publicada; para el estudiante, lo no
 publicado figura como `PENDIENTE`.
+
+### Tarjetas de acción inmediata (flujo v2, Fase 4)
+
+`GET /dashboard/actions?periodo_id=` (por defecto el periodo activo; solo Director y Docente, los demás `403`). Devuelve
+`{ rol, periodo, pendientes, tarjetas[] }`; cada tarjeta es `{ codigo, titulo, total, severidad (alta|media|info), destino: { pantalla, filtro } }`.
+`pendientes` suma solo las de severidad alta o media. Director: `DOCUMENTOS_POR_REVISAR`, `PLAZAS_POR_VALIDAR`,
+`PRACTICAS_LISTAS_PARA_CERRAR`, `NIVELES_SIN_DOCENTE`, `NIVELES_SIN_CUESTIONARIO`, `NIVELES_SIN_GUIA`, `PRACTICAS_SIN_ASESOR`,
+`CONVENIOS_EN_TRAMITE` y, informativas, `SOLICITUDES_DEVUELTAS` y `SOLICITUDES_ESPERANDO_PLAZA`. Docente (bandeja): `EVALUACIONES_POR_CALIFICAR`,
+`EVALUACIONES_EN_BORRADOR`, `NIVELES_SIN_GUIA`, `NIVELES_SIN_CUESTIONARIO` y `CUESTIONARIOS_SIN_PUBLICAR` (informativa). Los
+«niveles sin cuestionario/guía» del Director solo cuentan niveles que ya tienen docente.
+
+### Eventos hacia el segundo servicio (flujo v2, Fase 5a)
+
+Con `EVENTS_MODE=outbox` el núcleo guarda cada evento en `eventos_salientes` y un publicador (`services/outboxPublisher.js`, arranca con
+`server.js`) lo envía por `POST {NOTIFICATIONS_SERVICE_URL}/events` con cabeceras `X-Event-Id`, `X-Timestamp` y `X-Signature`
+(HMAC-SHA256 de `"<marca>.<cuerpo>"` con `EVENTS_SHARED_SECRET`, mínimo 32 caracteres, el mismo en ambos servicios). Éxito = `2xx` o `409`
+(ya procesado). Si falla, reintenta con espera exponencial (5 s, 10 s, 20 s… tope 15 min) hasta `OUTBOX_MAX_ATTEMPTS`; luego queda `FALLIDO`
+sin perderse (`reencolarFallidos`). `FOR UPDATE SKIP LOCKED` permite varios publicadores sin duplicar. El sobre (versión 1) es
+`{ id, tipo, version, ocurrido_en, actor, entidad: {tipo,id}, destinatarios[], carga, contexto }`; `tipo` empieza por `auditoria.` o
+`notificacion.`.
+
+### Conexión con el servicio de notificaciones (Fase 5c)
+
+El modo por defecto sigue siendo `direct` (Firestore directo, como antes). Con `EVENTS_MODE=outbox` no cambia ningún caso de uso: los dos
+puntos que ya usaba el negocio se desvían (`adapters/eventosAdapter.js`):
+
+- `registrarAuditoria(...)` → evento `auditoria.<ACCION>` en el outbox (con `valor_anterior` y `valor_nuevo` en la carga).
+- `crearNotificacion(uid, {...})` → evento `notificacion.<TIPO>` con ese destinatario y el título, mensaje, ruta y prioridad en la carga.
+- `GET /notifications`, `PATCH /notifications/:id/read` y `POST /notifications/read-all` se resuelven contra el servicio de notificaciones
+  con llamadas firmadas (`adapters/notificacionesRemotas.js`, firma de `"<MÉTODO> <ruta>"`). Si el servicio no responde: `502 NOTIFICATION_STORE_ERROR`.
+
+Como antes, es «mejor esfuerzo»: si el evento no se puede encolar se registra en el log y la operación académica no se revierte. Los
+borradores de bitácora siguen en el Firestore del backend. Pruebas: `tests/integration/eventos_conectados.test.js` (incluye una prueba de
+punta a punta contra el servicio real si la carpeta `notifications-service` está junto a `backend`).
 
 ## Pruebas
 

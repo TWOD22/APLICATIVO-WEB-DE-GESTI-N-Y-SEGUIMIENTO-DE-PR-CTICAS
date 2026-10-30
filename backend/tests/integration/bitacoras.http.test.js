@@ -101,6 +101,9 @@ describe("API HTTP · cuestionarios y bitácoras", { skip: !hayBaseDePruebas() &
     });
     assert.equal(asignacion.estado, 201, JSON.stringify(asignacion.json));
     asignacionId = asignacion.json.data.id;
+    // Flujo v2: el cuestionario lo gestiona el docente del nivel en el periodo activo.
+    const cfg = await pedir(`/api/v1/level-teachers/${nivelId}`, { token: tokenDirector, metodo: "PUT", cuerpo: { docente_id: docente.id } });
+    assert.equal(cfg.estado, 200, JSON.stringify(cfg.json));
   });
 
   after(async () => {
@@ -110,64 +113,80 @@ describe("API HTTP · cuestionarios y bitácoras", { skip: !hayBaseDePruebas() &
 
   // ───────────────────────── Cuestionarios ─────────────────────────
 
-  it("solo Dirección configura cuestionarios y las entradas se validan", async () => {
+  it("solo el docente del nivel configura cuestionarios (Dirección consulta) y las entradas se validan", async () => {
     assert.equal((await pedir("/api/v1/questionnaires")).estado, 401);
     assert.equal((await pedir("/api/v1/questionnaires", { token: tokenEstudiante })).estado, 403);
-    assert.equal((await pedir("/api/v1/questionnaires", { token: tokenDocente })).estado, 403);
+    assert.equal((await pedir("/api/v1/questionnaires", { token: tokenAsesor })).estado, 403);
     assert.equal((await pedir("/api/v1/questionnaires", { token: tokenEstudiante, metodo: "POST", cuerpo: { nivel_practica_id: nivelId } })).estado, 403);
+    assert.equal((await pedir("/api/v1/questionnaires", { token: tokenDocente })).estado, 200, "Dirección consulta");
+    assert.equal((await pedir("/api/v1/questionnaires", { token: tokenDocente })).estado, 200);
 
-    const sinNivel = await pedir("/api/v1/questionnaires", { token: tokenDirector, metodo: "POST", cuerpo: {} });
+    // Dirección y un docente sin ese nivel no crean ni modifican
+    for (const [token, codigo] of [[tokenDirector, "FORBIDDEN"], [tokenDocente2, "NOT_LEVEL_TEACHER"]]) {
+      const r = await pedir("/api/v1/questionnaires", { token, metodo: "POST", cuerpo: { nivel_practica_id: nivelId, sin_copia: true } });
+      assert.equal(r.estado, 403, JSON.stringify(r.json));
+      assert.equal(r.json.error.code, codigo);
+    }
+
+    const sinNivel = await pedir("/api/v1/questionnaires", { token: tokenDocente, metodo: "POST", cuerpo: {} });
     assert.equal(sinNivel.estado, 400);
     assert.equal(sinNivel.json.error.code, "VALIDATION_ERROR");
 
-    const creado = await pedir("/api/v1/questionnaires", { token: tokenDirector, metodo: "POST", cuerpo: { nivel_practica_id: nivelId, sin_copia: true } });
+    const creado = await pedir("/api/v1/questionnaires", { token: tokenDocente, metodo: "POST", cuerpo: { nivel_practica_id: nivelId, sin_copia: true } });
     assert.equal(creado.estado, 201, JSON.stringify(creado.json));
     assert.equal(creado.json.data.numero_version, 1);
     assert.equal(creado.json.data.editable, true);
     cuestionarioId = creado.json.data.id;
     assert.ok(creado.json.meta.request_id);
 
-    const duplicado = await pedir("/api/v1/questionnaires", { token: tokenDirector, metodo: "POST", cuerpo: { nivel_practica_id: nivelId, sin_copia: true } });
+    const duplicado = await pedir("/api/v1/questionnaires", { token: tokenDocente, metodo: "POST", cuerpo: { nivel_practica_id: nivelId, sin_copia: true } });
     assert.equal(duplicado.estado, 409);
     assert.equal(duplicado.json.error.code, "DRAFT_ALREADY_EXISTS");
 
     const ruta = `/api/v1/questionnaires/${cuestionarioId}/questions`;
-    const sinEnunciado = await pedir(ruta, { token: tokenDirector, metodo: "POST", cuerpo: { tipo: "ABIERTA" } });
+    const sinEnunciado = await pedir(ruta, { token: tokenDocente, metodo: "POST", cuerpo: { tipo: "ABIERTA" } });
     assert.equal(sinEnunciado.estado, 400);
-    const pocasOpciones = await pedir(ruta, { token: tokenDirector, metodo: "POST", cuerpo: { tipo: "CERRADA_UNICA", enunciado: "¿Cómo estuvo?", opciones: [{ etiqueta: "Bien" }] } });
+    const pocasOpciones = await pedir(ruta, { token: tokenDocente, metodo: "POST", cuerpo: { tipo: "CERRADA_UNICA", enunciado: "¿Cómo estuvo?", opciones: [{ etiqueta: "Bien" }] } });
     assert.equal(pocasOpciones.estado, 422);
     assert.equal(pocasOpciones.json.error.code, "OPTIONS_REQUIRED");
 
-    const abierta = await pedir(ruta, { token: tokenDirector, metodo: "POST", cuerpo: { tipo: "ABIERTA", enunciado: "¿Qué aprendiste?", obligatoria: true } });
+    const abierta = await pedir(ruta, { token: tokenDocente, metodo: "POST", cuerpo: { tipo: "ABIERTA", enunciado: "¿Qué aprendiste?", obligatoria: true } });
     assert.equal(abierta.estado, 201, JSON.stringify(abierta.json));
     const unica = await pedir(ruta, {
-      token: tokenDirector, metodo: "POST",
+      token: tokenDocente, metodo: "POST",
       cuerpo: { tipo: "CERRADA_UNICA", enunciado: "¿Lograste el objetivo?", obligatoria: true, opciones: [{ etiqueta: "Sí" }, { etiqueta: "No" }] },
     });
     assert.equal(unica.estado, 201);
-    const descartable = await pedir(ruta, { token: tokenDirector, metodo: "POST", cuerpo: { tipo: "ABIERTA", enunciado: "Pregunta que se elimina", obligatoria: false } });
+    const descartable = await pedir(ruta, { token: tokenDocente, metodo: "POST", cuerpo: { tipo: "ABIERTA", enunciado: "Pregunta que se elimina", obligatoria: false } });
     assert.equal(descartable.json.data.preguntas.length, 3);
 
     // DELETE responde 204 sin cuerpo
     const idDescartable = descartable.json.data.preguntas[2].id;
-    const eliminada = await pedir(`/api/v1/questions/${idDescartable}`, { token: tokenDirector, metodo: "DELETE" });
+    const eliminada = await pedir(`/api/v1/questions/${idDescartable}`, { token: tokenDocente, metodo: "DELETE" });
     assert.equal(eliminada.estado, 204);
     assert.equal(eliminada.json, null);
-    assert.equal((await pedir(`/api/v1/questions/${idDescartable}`, { token: tokenDirector, metodo: "DELETE" })).estado, 404);
+    assert.equal((await pedir(`/api/v1/questions/${idDescartable}`, { token: tokenDocente, metodo: "DELETE" })).estado, 404);
     [preguntaAbierta, preguntaUnica] = unica.json.data.preguntas;
     opcionSi = preguntaUnica.opciones.find((o) => o.etiqueta === "Sí").id;
   });
 
   it("publicar deja el cuestionario habilitado e inmutable", async () => {
-    const publicado = await pedir(`/api/v1/questionnaires/${cuestionarioId}/publish`, { token: tokenDirector, metodo: "POST" });
+    const impacto = await pedir(`/api/v1/questionnaires/${cuestionarioId}/publish-impact`, { token: tokenDocente });
+    assert.equal(impacto.estado, 200, JSON.stringify(impacto.json));
+    assert.equal(impacto.json.data.recibiran, 0);
+    assert.equal((await pedir(`/api/v1/questionnaires/${cuestionarioId}/publish-impact`, { token: tokenDirector })).estado, 403);
+    assert.equal((await pedir(`/api/v1/questionnaires/${cuestionarioId}/publish`, { token: tokenDirector, metodo: "POST" })).estado, 403);
+    const publicado = await pedir(`/api/v1/questionnaires/${cuestionarioId}/publish`, { token: tokenDocente, metodo: "POST" });
     assert.equal(publicado.estado, 200, JSON.stringify(publicado.json));
     assert.equal(publicado.json.data.estado, "PUBLICADO");
     assert.equal(publicado.json.data.habilitado, true);
+    assert.deepEqual(Object.keys(publicado.json.data.impacto).sort(), ["conservan", "recibiran"]);
+    assert.equal(publicado.json.data.impacto.recibiran, 0, "la bitácora aún no existe: se crea al abrirla");
 
-    const agregar = await pedir(`/api/v1/questionnaires/${cuestionarioId}/questions`, { token: tokenDirector, metodo: "POST", cuerpo: { tipo: "ABIERTA", enunciado: "Tarde" } });
+    const agregar = await pedir(`/api/v1/questionnaires/${cuestionarioId}/questions`, { token: tokenDocente, metodo: "POST", cuerpo: { tipo: "ABIERTA", enunciado: "Tarde" } });
     assert.equal(agregar.estado, 409);
     assert.equal(agregar.json.error.code, "QUESTIONNAIRE_PUBLISHED");
-    const eliminar = await pedir(`/api/v1/questions/${preguntaAbierta.id}`, { token: tokenDirector, metodo: "DELETE" });
+    const eliminar = await pedir(`/api/v1/questions/${preguntaAbierta.id}`, { token: tokenDocente, metodo: "DELETE" });
     assert.equal(eliminar.estado, 409);
 
     const lista = await pedir("/api/v1/questionnaires?nivel=1", { token: tokenDirector });

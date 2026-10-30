@@ -2,11 +2,18 @@
  * Servicio de cuestionarios versionados.
  * Cada nivel de práctica tiene versiones del cuestionario: BORRADOR (editable) → PUBLICADO (inmutable) y solo una versión HABILITADA.
  * Las bitácoras conservan la versión con la que se crearon. Todas las modificaciones usan transacciones con bloqueo del nivel.
+ * Flujo v2: el cuestionario lo configura el docente del nivel en el periodo activo; Dirección y los demás docentes
+ * solo lo consultan (un docente puede copiar preguntas de cualquier versión publicada, también de otro nivel).
+ * `auth` es siempre el último parámetro de cada caso de uso.
  */
 import { registrarAuditoria } from "../adapters/firestoreAdapter.js";
 import { withTransaction } from "../database/transaction.js";
+import * as documentRepository from "../repositories/documentRepository.js";
+import * as levelTeacherRepository from "../repositories/levelTeacherRepository.js";
 import * as questionnaireRepository from "../repositories/questionnaireRepository.js";
+import { crearNotificacion } from "../adapters/firestoreAdapter.js";
 import { ApiError } from "../utils/apiError.js";
+import { ROLES } from "../utils/constants.js";
 
 // Tipos de pregunta que llevan opciones de respuesta.
 const CERRADAS = ["CERRADA_UNICA", "CERRADA_MULTIPLE"];
@@ -17,13 +24,39 @@ const ERROR_PUBLICADO = () =>
     "QUESTIONNAIRE_PUBLISHED"
   );
 
+// ───────────────────────── Permisos ─────────────────────────
+
+const esDocente = (auth) => auth.rolActivo === ROLES.DOCENTE_SUPERVISOR;
+
+/** Ids de los niveles que el usuario puede configurar (solo un docente, en el periodo activo). */
+const nivelesGestionables = async (auth) =>
+  esDocente(auth) ? new Set(await levelTeacherRepository.nivelesDelDocenteActivo(auth.usuario.id)) : new Set();
+
+/** Solo el docente asignado al nivel en el periodo activo modifica su cuestionario. */
+async function exigirGestionDelNivel(auth, nivelId) {
+  if (!(await nivelesGestionables(auth)).has(nivelId)) {
+    throw ApiError.prohibido(
+      "Solo el docente asignado a este nivel en el periodo activo configura su cuestionario.",
+      "NOT_LEVEL_TEACHER"
+    );
+  }
+}
+
+/** Carga el cuestionario (404 si no existe) y exige que el usuario gestione su nivel (403 si no). */
+async function cargarGestionable(id, auth) {
+  const c = await questionnaireRepository.buscarPorId(id);
+  if (!c) throw ApiError.noEncontrado("El cuestionario no existe.", "QUESTIONNAIRE_NOT_FOUND");
+  await exigirGestionDelNivel(auth, c.nivel_practica_id);
+  return c;
+}
+
 // ───────────────────────── Presentación ─────────────────────────
 
 // Estado visible: PUBLICADO o BORRADOR.
 const estadoDe = (c) => (c.publicado ? "PUBLICADO" : "BORRADOR");
 
 // Resumen del cuestionario para listados.
-function armarResumen(c) {
+function armarResumen(c, gestionables = new Set()) {
   return {
     id: c.id,
     nivel: { id: c.nivel_practica_id, codigo: c.nivel_codigo, nombre: c.nivel_nombre, semestre: c.nivel_semestre },
@@ -34,6 +67,7 @@ function armarResumen(c) {
     publicado_en: c.publicado_en,
     total_preguntas: c.total_preguntas,
     total_bitacoras: c.total_bitacoras,
+    gestionable: gestionables.has(c.nivel_practica_id),
   };
 }
 
@@ -48,13 +82,14 @@ const armarPregunta = (p) => ({
 });
 
 // Detalle completo: resumen, si es editable y sus preguntas.
-async function armarDetalle(id, db) {
+async function armarDetalle(id, auth, db) {
   const c = await questionnaireRepository.buscarPorId(id, db);
   const preguntas = await questionnaireRepository.cargarPreguntas(id, db);
+  const resumen = armarResumen({ ...c, total_preguntas: preguntas.length }, await nivelesGestionables(auth));
   return {
-    ...armarResumen({ ...c, total_preguntas: preguntas.length }),
-    // Un cuestionario publicado es inmutable: solo el borrador admite cambios.
-    editable: !c.publicado,
+    ...resumen,
+    // Un cuestionario publicado es inmutable; además solo el docente del nivel edita (Dirección consulta).
+    editable: !c.publicado && resumen.gestionable,
     preguntas: preguntas.map(armarPregunta),
   };
 }
@@ -94,26 +129,28 @@ async function cargarBorradorODetener(id, db) {
 // ───────────────────────── Casos de uso ─────────────────────────
 
 /** Lista cuestionarios filtrando por nivel o semestre. */
-export async function listar({ nivel_practica_id, nivel }) {
+export async function listar({ nivel_practica_id, nivel }, auth) {
   const filas = await questionnaireRepository.listar({ nivelId: nivel_practica_id, semestre: nivel });
-  return filas.map(armarResumen);
+  const gestionables = await nivelesGestionables(auth);
+  return filas.map((f) => armarResumen(f, gestionables));
 }
 
 /** Detalle de un cuestionario con sus preguntas. */
-export async function obtener(id) {
+export async function obtener(id, auth) {
   if (!(await questionnaireRepository.buscarPorId(id))) {
     throw ApiError.noEncontrado("El cuestionario no existe.", "QUESTIONNAIRE_NOT_FOUND");
   }
-  return armarDetalle(id);
+  return armarDetalle(id, auth);
 }
 
 /**
  * Crea la siguiente versión (borrador) de un nivel. Por defecto copia las preguntas de la versión habilitada
  * (o, si no hay, de la última publicada) para que Dirección edite a partir de lo vigente.
  */
-export async function crear({ nivel_practica_id, titulo, copiar_de, sin_copia }, contexto) {
+export async function crear({ nivel_practica_id, titulo, copiar_de, sin_copia }, contexto, auth) {
   const nivel = await questionnaireRepository.buscarNivel(nivel_practica_id);
   if (!nivel) throw ApiError.noEncontrado("El nivel de práctica no existe.", "LEVEL_NOT_FOUND");
+  await exigirGestionDelNivel(auth, nivel.id);
 
       // Solo puede existir un borrador por nivel: se bloquea el nivel para evitar crear dos a la vez.
   const id = await withTransaction(async (client) => {
@@ -131,8 +168,9 @@ export async function crear({ nivel_practica_id, titulo, copiar_de, sin_copia },
     if (!sin_copia) {
       if (copiar_de) {
         base = await questionnaireRepository.buscarPorId(copiar_de, client);
-        if (!base || base.nivel_practica_id !== nivel.id) {
-          throw ApiError.reglaDeNegocio("La versión a copiar no pertenece a este nivel.", "INVALID_SOURCE_QUESTIONNAIRE");
+        // Se puede copiar de una versión de este nivel (también un borrador) o de cualquier versión PUBLICADA de otro nivel.
+        if (!base || (base.nivel_practica_id !== nivel.id && !base.publicado)) {
+          throw ApiError.reglaDeNegocio("La versión a copiar no existe o aún no está publicada.", "INVALID_SOURCE_QUESTIONNAIRE");
         }
       } else {
         base =
@@ -163,7 +201,7 @@ export async function crear({ nivel_practica_id, titulo, copiar_de, sin_copia },
     return creado.id;
   });
 
-  const detalle = await armarDetalle(id);
+  const detalle = await armarDetalle(id, auth);
   await registrarAuditoria({
     contexto,
     accion: "CUESTIONARIO_CREADO",
@@ -175,16 +213,18 @@ export async function crear({ nivel_practica_id, titulo, copiar_de, sin_copia },
 }
 
 /** Cambia el título del borrador. */
-export async function actualizar(id, { titulo }) {
+export async function actualizar(id, { titulo }, auth) {
+  await cargarGestionable(id, auth);
   await withTransaction(async (client) => {
     await cargarBorradorODetener(id, client);
     await questionnaireRepository.actualizarTitulo(id, titulo, client);
   });
-  return armarDetalle(id);
+  return armarDetalle(id, auth);
 }
 
 /** Agrega una pregunta al final del borrador (valida las opciones según el tipo). */
-export async function agregarPregunta(cuestionarioId, { tipo, enunciado, obligatoria, opciones }) {
+export async function agregarPregunta(cuestionarioId, { tipo, enunciado, obligatoria, opciones }, auth) {
+  await cargarGestionable(cuestionarioId, auth);
   const etiquetas = validarOpciones(tipo, opciones?.map((o) => o.etiqueta));
   await withTransaction(async (client) => {
     await cargarBorradorODetener(cuestionarioId, client);
@@ -192,13 +232,14 @@ export async function agregarPregunta(cuestionarioId, { tipo, enunciado, obligat
     const pregunta = await questionnaireRepository.insertarPregunta({ cuestionarioId, tipo, enunciado, obligatoria, orden }, client);
     await questionnaireRepository.insertarOpciones(pregunta.id, etiquetas, client);
   });
-  return armarDetalle(cuestionarioId);
+  return armarDetalle(cuestionarioId, auth);
 }
 
 /** Edita una pregunta del borrador; si cambian las opciones o el tipo, las reemplaza. */
-export async function actualizarPregunta(id, cambios) {
+export async function actualizarPregunta(id, cambios, auth) {
   const previa = await questionnaireRepository.buscarPregunta(id);
   if (!previa) throw ApiError.noEncontrado("La pregunta no existe.", "QUESTION_NOT_FOUND");
+  await cargarGestionable(previa.cuestionario_id, auth);
 
   await withTransaction(async (client) => {
     await cargarBorradorODetener(previa.cuestionario_id, client);
@@ -220,13 +261,14 @@ export async function actualizarPregunta(id, cambios) {
       await questionnaireRepository.insertarOpciones(id, etiquetas, client);
     }
   });
-  return armarDetalle(previa.cuestionario_id);
+  return armarDetalle(previa.cuestionario_id, auth);
 }
 
 /** Retira la pregunta del borrador. Las preguntas de una versión publicada no se eliminan. */
-export async function eliminarPregunta(id) {
+export async function eliminarPregunta(id, auth) {
   const previa = await questionnaireRepository.buscarPregunta(id);
   if (!previa) throw ApiError.noEncontrado("La pregunta no existe.", "QUESTION_NOT_FOUND");
+  await cargarGestionable(previa.cuestionario_id, auth);
   await withTransaction(async (client) => {
     await cargarBorradorODetener(previa.cuestionario_id, client);
     await questionnaireRepository.retirarPregunta(id, client);
@@ -239,7 +281,8 @@ export async function eliminarPregunta(id) {
 }
 
 /** Define un nuevo orden: la lista debe contener exactamente las preguntas actuales, sin repetir. */
-export async function reordenar(cuestionarioId, { orden }) {
+export async function reordenar(cuestionarioId, { orden }, auth) {
+  await cargarGestionable(cuestionarioId, auth);
   await withTransaction(async (client) => {
     await cargarBorradorODetener(cuestionarioId, client);
     const actuales = (await questionnaireRepository.cargarPreguntas(cuestionarioId, client)).map((p) => p.id);
@@ -255,16 +298,15 @@ export async function reordenar(cuestionarioId, { orden }) {
       await questionnaireRepository.fijarOrden(preguntaId, indice + 1, client);
     }
   });
-  return armarDetalle(cuestionarioId);
+  return armarDetalle(cuestionarioId, auth);
 }
 
 /**
  * Publica el borrador: queda inmutable y pasa a ser el cuestionario habilitado del nivel
  * (la versión habilitada anterior se deshabilita pero se conserva para las bitácoras que ya la usan).
  */
-export async function publicar(id, contexto) {
-  const previo = await questionnaireRepository.buscarPorId(id);
-  if (!previo) throw ApiError.noEncontrado("El cuestionario no existe.", "QUESTIONNAIRE_NOT_FOUND");
+export async function publicar(id, contexto, auth) {
+  const previo = await cargarGestionable(id, auth);
 
   const reemplazada = await withTransaction(async (client) => {
     await questionnaireRepository.bloquearNivel(previo.nivel_practica_id, client);
@@ -286,7 +328,8 @@ export async function publicar(id, contexto) {
     return anterior;
   });
 
-  const detalle = await armarDetalle(id);
+  const detalle = await armarDetalle(id, auth);
+  const impacto = await questionnaireRepository.contarImpactoDePublicar(previo.nivel_practica_id);
   await registrarAuditoria({
     contexto,
     accion: "CUESTIONARIO_PUBLICADO",
@@ -295,13 +338,35 @@ export async function publicar(id, contexto) {
     valor_anterior: reemplazada ? { cuestionario_habilitado_id: reemplazada.id, numero_version: reemplazada.numero_version } : null,
     valor_nuevo: { nivel: previo.nivel_codigo, numero_version: detalle.numero_version, preguntas: detalle.preguntas.length },
   });
-  return detalle;
+  await avisarADireccion({
+    tipo: "CUESTIONARIO_PUBLICADO",
+    titulo: "El docente publicó un cuestionario",
+    mensaje: `${previo.nivel_nombre}: versión ${detalle.numero_version} publicada y habilitada.`,
+    entidad: { tipo: "cuestionario", id },
+  });
+  return { ...detalle, impacto };
+}
+
+/**
+ * Qué pasará al publicar este borrador: cuántas bitácoras sin cuestionario lo recibirán y cuántas conservan su versión.
+ * Sirve para el aviso de confirmación antes de publicar.
+ */
+export async function impactoDePublicar(id, auth) {
+  const c = await cargarGestionable(id, auth);
+  const impacto = await questionnaireRepository.contarImpactoDePublicar(c.nivel_practica_id);
+  return { cuestionario_id: id, nivel: { id: c.nivel_practica_id, nombre: c.nivel_nombre }, ...impacto };
+}
+
+// Aviso a todos los Directores (mejor esfuerzo, igual que el resto de notificaciones).
+async function avisarADireccion(aviso) {
+  for (const director of await documentRepository.listarDirectores()) {
+    if (director.firebase_uid) await crearNotificacion(director.firebase_uid, aviso);
+  }
 }
 
 /** Habilita o deshabilita una versión publicada. Solo una versión por nivel puede estar habilitada. */
-export async function cambiarHabilitado(id, { habilitado }, contexto) {
-  const previo = await questionnaireRepository.buscarPorId(id);
-  if (!previo) throw ApiError.noEncontrado("El cuestionario no existe.", "QUESTIONNAIRE_NOT_FOUND");
+export async function cambiarHabilitado(id, { habilitado }, contexto, auth) {
+  const previo = await cargarGestionable(id, auth);
 
   await withTransaction(async (client) => {
     await questionnaireRepository.bloquearNivel(previo.nivel_practica_id, client);
@@ -321,5 +386,11 @@ export async function cambiarHabilitado(id, { habilitado }, contexto) {
     valor_anterior: { habilitado: previo.habilitado },
     valor_nuevo: { habilitado, nivel: previo.nivel_codigo, numero_version: previo.numero_version },
   });
-  return armarDetalle(id);
+  await avisarADireccion({
+    tipo: habilitado ? "CUESTIONARIO_HABILITADO" : "CUESTIONARIO_DESHABILITADO",
+    titulo: habilitado ? "El docente habilitó un cuestionario" : "El docente deshabilitó un cuestionario",
+    mensaje: `${previo.nivel_nombre}: versión ${previo.numero_version}.`,
+    entidad: { tipo: "cuestionario", id },
+  });
+  return armarDetalle(id, auth);
 }

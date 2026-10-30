@@ -39,6 +39,14 @@ const esquemaEntorno = z
     SUPABASE_SECRET_KEY: textoOpcional,
     SUPABASE_STORAGE_BUCKET: textoOpcional,
 
+    // Eventos hacia el segundo servicio (notificaciones y auditoría). "direct" escribe en Firestore como antes;
+    // "outbox" guarda cada evento en PostgreSQL y un publicador lo envía por HTTP firmado, con reintentos.
+    EVENTS_MODE: z.enum(["direct", "outbox"]).default("direct"),
+    NOTIFICATIONS_SERVICE_URL: textoOpcional,
+    EVENTS_SHARED_SECRET: textoOpcional,
+    OUTBOX_POLL_MS: z.coerce.number().int().min(200).default(2000),
+    OUTBOX_BATCH_SIZE: z.coerce.number().int().min(1).max(200).default(25),
+    OUTBOX_MAX_ATTEMPTS: z.coerce.number().int().min(1).max(50).default(8),
     LOG_LEVEL: z.enum(["fatal", "error", "warn", "info", "debug", "trace", "silent"]).default("info"),
     SIGNED_URL_TTL_SECONDS: z.coerce.number().int().positive().default(900),
     MAX_JSON_SIZE: z.string().default("1mb"),
@@ -56,6 +64,14 @@ const esquemaEntorno = z
         path: ["SUPABASE_URL"],
         message: "SUPABASE_URL debe ser https://<proyecto>.supabase.co (sin '/' final ni rutas)",
       });
+    }
+    if (valores.EVENTS_MODE === "outbox") {
+      for (const clave of ["NOTIFICATIONS_SERVICE_URL", "EVENTS_SHARED_SECRET"]) {
+        if (!valores[clave]) ctx.addIssue({ code: "custom", path: [clave], message: `${clave} es obligatoria con EVENTS_MODE=outbox` });
+      }
+      if (valores.EVENTS_SHARED_SECRET && valores.EVENTS_SHARED_SECRET.length < 32) {
+        ctx.addIssue({ code: "custom", path: ["EVENTS_SHARED_SECRET"], message: "EVENTS_SHARED_SECRET debe tener al menos 32 caracteres" });
+      }
     }
     // En staging y producción las credenciales externas son obligatorias y no se permite apuntar a localhost.
     if (["staging", "production"].includes(valores.NODE_ENV)) {

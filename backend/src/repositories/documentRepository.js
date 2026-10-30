@@ -3,12 +3,13 @@
  * Un documento nuevo reemplaza al anterior (se conserva el historial de versiones).
  */
 import { pool } from "../config/database.js";
+import { OBLIGATORIO_PARA_ASIGNACION as OBL } from "./sqlRequisitos.js";
 import { escaparLike } from "../utils/pagination.js";
 
 /** Bloquea la fila de la asignación hasta terminar la transacción (serializa cargas y revisiones). */
 export async function bloquearAsignacion(id, db = pool) {
   const { rows } = await db.query(
-    `SELECT a.id, a.estado, a.nivel_practica_id, m.periodo_academico_id AS periodo_id, m.estudiante_id,
+    `SELECT a.id, a.estado, a.nivel_practica_id, a.solicitada_por_id, m.periodo_academico_id AS periodo_id, m.estudiante_id,
             u.firebase_uid AS estudiante_firebase_uid
        FROM asignaciones_practica a
        JOIN matriculas_estudiantes m ON m.id = a.matricula_estudiante_id
@@ -23,7 +24,7 @@ export async function bloquearAsignacion(id, db = pool) {
 /** Requisitos del nivel de la asignación con la versión vigente de cada documento. */
 export async function listarRequisitos(asignacionId, db = pool) {
   const { rows } = await db.query(
-    `SELECT r.id AS requisito_id, r.obligatorio, r.orden_visual,
+    `SELECT r.id AS requisito_id, ${OBL} AS obligatorio, r.orden_visual,
             t.id AS tipo_id, t.codigo, t.nombre, t.descripcion, t.tipos_mime_permitidos,
             t.tamano_maximo_bytes::bigint AS tamano_maximo_bytes,
             d.id AS documento_id, d.estado, d.numero_version, d.observacion_revision, d.enviado_en, d.revisado_en,
@@ -52,7 +53,7 @@ export async function listarRequisitos(asignacionId, db = pool) {
 export async function buscarRequisito(asignacionId, tipoId, db = pool) {
   const { rows } = await db.query(
     `SELECT t.id AS tipo_id, t.codigo, t.nombre, t.tipos_mime_permitidos,
-            t.tamano_maximo_bytes::bigint AS tamano_maximo_bytes, r.obligatorio
+            t.tamano_maximo_bytes::bigint AS tamano_maximo_bytes, ${OBL} AS obligatorio
        FROM asignaciones_practica a
        JOIN requisitos_documentales r ON r.nivel_practica_id = a.nivel_practica_id AND r.eliminado_en IS NULL
        JOIN tipos_documento_legal t ON t.id = r.tipo_documento_legal_id AND t.eliminado_en IS NULL AND t.activo
@@ -171,7 +172,7 @@ export async function contarObligatorios(asignacionId, db = pool) {
             count(*) FILTER (WHERE d.estado = 'APROBADO')::int AS aprobados
        FROM asignaciones_practica a
        JOIN requisitos_documentales r ON r.nivel_practica_id = a.nivel_practica_id
-            AND r.eliminado_en IS NULL AND r.obligatorio
+            AND r.eliminado_en IS NULL AND ${OBL}
        JOIN tipos_documento_legal t ON t.id = r.tipo_documento_legal_id AND t.eliminado_en IS NULL AND t.activo
        LEFT JOIN documentos_legales_estudiantes d ON d.asignacion_practica_id = a.id
               AND d.tipo_documento_legal_id = t.id AND d.es_version_actual AND d.eliminado_en IS NULL
@@ -179,6 +180,47 @@ export async function contarObligatorios(asignacionId, db = pool) {
     [asignacionId]
   );
   return rows[0];
+}
+
+/**
+ * Resumen del expediente para decidir el estado de una solicitud: obligatorios aprobados y documentos devueltos.
+ * Un documento "devuelto" (POR_CORREGIR) hace que la solicitud vuelva al estudiante (DEVUELTA).
+ */
+export async function resumenExpediente(asignacionId, db = pool) {
+  const { rows } = await db.query(
+    `SELECT count(*) FILTER (WHERE ${OBL})::int AS total_obligatorios,
+            count(*) FILTER (WHERE ${OBL} AND d.estado = 'APROBADO')::int AS aprobados_obligatorios,
+            count(*) FILTER (WHERE d.estado = 'POR_CORREGIR')::int AS por_corregir
+       FROM asignaciones_practica a
+       JOIN requisitos_documentales r ON r.nivel_practica_id = a.nivel_practica_id AND r.eliminado_en IS NULL
+       JOIN tipos_documento_legal t ON t.id = r.tipo_documento_legal_id AND t.eliminado_en IS NULL AND t.activo
+       LEFT JOIN documentos_legales_estudiantes d ON d.asignacion_practica_id = a.id
+              AND d.tipo_documento_legal_id = t.id AND d.es_version_actual AND d.eliminado_en IS NULL
+      WHERE a.id = $1`,
+    [asignacionId]
+  );
+  return rows[0];
+}
+
+/** Resumen del expediente de varias asignaciones a la vez (para la bandeja del Director). */
+export async function resumenesDeExpedientes(ids, db = pool) {
+  if (!ids.length) return new Map();
+  const { rows } = await db.query(
+    `SELECT a.id,
+            count(*) FILTER (WHERE ${OBL})::int AS total_obligatorios,
+            count(*) FILTER (WHERE ${OBL} AND d.estado = 'APROBADO')::int AS aprobados_obligatorios,
+            count(*) FILTER (WHERE d.estado = 'EN_REVISION')::int AS en_revision,
+            count(*) FILTER (WHERE d.estado = 'POR_CORREGIR')::int AS por_corregir
+       FROM asignaciones_practica a
+       JOIN requisitos_documentales r ON r.nivel_practica_id = a.nivel_practica_id AND r.eliminado_en IS NULL
+       JOIN tipos_documento_legal t ON t.id = r.tipo_documento_legal_id AND t.eliminado_en IS NULL AND t.activo
+       LEFT JOIN documentos_legales_estudiantes d ON d.asignacion_practica_id = a.id
+              AND d.tipo_documento_legal_id = t.id AND d.es_version_actual AND d.eliminado_en IS NULL
+      WHERE a.id = ANY($1::uuid[])
+      GROUP BY a.id`,
+    [ids]
+  );
+  return new Map(rows.map((f) => [f.id, { ...f, id: undefined, expediente_completo: f.aprobados_obligatorios === f.total_obligatorios }]));
 }
 
 /** Cambia el estado de la asignación. */
@@ -233,23 +275,23 @@ const BASE_EXPEDIENTES = `
     JOIN periodos_academicos pe ON pe.id = m.periodo_academico_id
     JOIN usuarios e ON e.id = m.estudiante_id
     JOIN niveles_practica n ON n.id = a.nivel_practica_id
-    JOIN instituciones i ON i.id = a.institucion_id
+    LEFT JOIN instituciones i ON i.id = a.institucion_id
     CROSS JOIN LATERAL (
       SELECT count(*)::int AS total_requisitos,
              count(*) FILTER (WHERE d.estado = 'APROBADO')::int AS aprobados,
              count(*) FILTER (WHERE d.estado = 'EN_REVISION')::int AS en_revision,
              count(*) FILTER (WHERE d.estado = 'POR_CORREGIR')::int AS por_corregir,
              count(*) FILTER (WHERE d.id IS NULL)::int AS sin_cargar,
-             count(*) FILTER (WHERE r.obligatorio)::int AS total_obligatorios,
-             count(*) FILTER (WHERE r.obligatorio AND d.estado = 'APROBADO')::int AS aprobados_obligatorios,
-             count(*) FILTER (WHERE r.obligatorio AND d.id IS NULL)::int AS sin_cargar_obligatorios
+             count(*) FILTER (WHERE ${OBL})::int AS total_obligatorios,
+             count(*) FILTER (WHERE ${OBL} AND d.estado = 'APROBADO')::int AS aprobados_obligatorios,
+             count(*) FILTER (WHERE ${OBL} AND d.id IS NULL)::int AS sin_cargar_obligatorios
         FROM requisitos_documentales r
         JOIN tipos_documento_legal t ON t.id = r.tipo_documento_legal_id AND t.eliminado_en IS NULL AND t.activo
         LEFT JOIN documentos_legales_estudiantes d ON d.asignacion_practica_id = a.id
                AND d.tipo_documento_legal_id = t.id AND d.es_version_actual AND d.eliminado_en IS NULL
        WHERE r.nivel_practica_id = a.nivel_practica_id AND r.eliminado_en IS NULL
     ) c
-   WHERE a.eliminado_en IS NULL AND a.estado <> 'CANCELADA'`;
+   WHERE a.eliminado_en IS NULL AND a.estado NOT IN ('CANCELADA', 'RECHAZADA', 'BORRADOR')`;
 
 // Construye el WHERE de la auditoría documental según los filtros recibidos.
 function filtrosExpedientes({ q, periodo_id, nivel }, parametros) {

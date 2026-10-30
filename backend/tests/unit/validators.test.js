@@ -11,7 +11,7 @@ import {
 } from "../../src/validators/institutionSchemas.js";
 import { fechaIso } from "../../src/validators/commonSchemas.js";
 import {
-  borradorEvaluacionBody, listarEvaluacionesQuery, publicarEvaluacionBody, reabrirEvaluacionBody,
+  borradorEvaluacionBody, listarEvaluacionesQuery, publicarEvaluacionBody, corregirEvaluacionBody,
 } from "../../src/validators/evaluationSchemas.js";
 import {
   actualizarAsignacionBody, cancelarAsignacionBody, crearAsignacionBody, listarAsignacionesQuery,
@@ -272,11 +272,14 @@ describe("esquemas de evaluaciones", () => {
     assert.equal(publicarEvaluacionBody.safeParse({ promedio: 4 }).success, false);
   });
 
-  it("reapertura: el motivo es obligatorio", () => {
-    assert.equal(reabrirEvaluacionBody.safeParse({}).success, false);
-    assert.equal(reabrirEvaluacionBody.safeParse({ motivo: "ab" }).success, false);
-    assert.equal(reabrirEvaluacionBody.parse({ motivo: "  Error de digitación  " }).motivo, "Error de digitación");
-    assert.equal(reabrirEvaluacionBody.safeParse({ motivo: "x".repeat(501) }).success, false);
+  it("corrección: nota y motivo son obligatorios", () => {
+    assert.equal(corregirEvaluacionBody.safeParse({}).success, false);
+    assert.equal(corregirEvaluacionBody.safeParse({ nota: 4 }).success, false);
+    assert.equal(corregirEvaluacionBody.safeParse({ motivo: "Error de digitación" }).success, false);
+    assert.equal(corregirEvaluacionBody.safeParse({ nota: 4, motivo: "ab" }).success, false);
+    assert.equal(corregirEvaluacionBody.safeParse({ nota: 5.5, motivo: "Error de digitación" }).success, false);
+    assert.equal(corregirEvaluacionBody.parse({ nota: 4, motivo: "  Error de digitación  " }).motivo, "Error de digitación");
+    assert.equal(corregirEvaluacionBody.safeParse({ nota: 4, motivo: "x".repeat(501) }).success, false);
   });
 
   it("listado: convierte la paginación y valida estado y tipo", () => {

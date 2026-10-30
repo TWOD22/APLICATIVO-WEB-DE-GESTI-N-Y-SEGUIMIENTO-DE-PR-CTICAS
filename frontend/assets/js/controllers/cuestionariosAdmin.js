@@ -27,10 +27,15 @@ const fecha = (valor) => {
 /**
  * Conecta la pantalla de cuestionarios con la API.
  * @param {object} ui Utilidades de interfaz compartidas.
+ * @param {object} [opciones]
+ * @param {Element} [opciones.contenedor] Dónde dibujar (por defecto, la página completa).
+ * @param {string[]} [opciones.nivelIds] Si se indica, solo estos niveles (los del docente).
+ * @param {boolean} [opciones.puedeEditar] El docente del nivel edita; la Dirección solo consulta.
  */
-export function montarCuestionarios(ui) {
+export function montarCuestionarios(ui, opciones = {}) {
   const { badge, escapar, openModal, showToast } = ui;
-  const pagina = document.querySelector(".page");
+  const pagina = opciones.contenedor ?? document.querySelector(".page");
+  const puedeEditar = Boolean(opciones.puedeEditar);
     // Estado local: niveles, versiones del nivel elegido, detalle de la versión abierta y bandera de operación en curso.
   const estado = { niveles: [], nivelId: null, versiones: [], detalle: null, ocupado: false, error: null };
 
@@ -42,7 +47,7 @@ export function montarCuestionarios(ui) {
   async function cargarNiveles() {
     try {
       const { data } = await api.get("/practice-levels");
-      estado.niveles = data.filter((n) => n.activo !== false);
+      estado.niveles = data.filter((n) => n.activo !== false && (!opciones.nivelIds || opciones.nivelIds.includes(n.id)));
       estado.nivelId = estado.niveles.find((n) => n.id === nivelInicial)?.id ?? estado.niveles[0]?.id ?? null;
       await cargarNivel();
     } catch (error) {
@@ -107,20 +112,24 @@ export function montarCuestionarios(ui) {
       return `<div style="padding:24px;text-align:center"><p class="form-error" role="alert">${escapar(estado.error)}</p><button class="btn btn-secondary" type="button" data-qz-recargar>Reintentar</button></div>`;
     }
     if (!d) {
-      return `<header class="panel-heading question-bank-heading"><div><span class="eyebrow">${escapar(nivel?.nombre || "")}</span><h3>Este nivel aún no tiene cuestionario</h3><p>Crea el primero para que los estudiantes de este nivel respondan preguntas en su bitácora.</p></div><div class="question-bank-actions"><button class="btn btn-primary" type="button" data-qz-crear-vacio>Crear cuestionario</button></div></header><div class="empty-state"><strong>Sin cuestionario configurado</strong><p>La bitácora funciona igual sin preguntas; el cuestionario es opcional.</p></div>`;
+      return `<header class="panel-heading question-bank-heading"><div><span class="eyebrow">${escapar(nivel?.nombre || "")}</span><h3>Este nivel aún no tiene cuestionario</h3><p>${puedeEditar ? "Crea el primero para que los estudiantes de este nivel respondan preguntas en su bitácora." : "Lo crea el docente asignado a este nivel."}</p></div>${puedeEditar ? '<div class="question-bank-actions"><button class="btn btn-primary" type="button" data-qz-crear-vacio>Crear cuestionario</button></div>' : ""}</header><div class="empty-state"><strong>Sin cuestionario configurado</strong><p>La bitácora funciona igual sin preguntas; el cuestionario es opcional.</p></div>`;
     }
     const editable = d.editable;
     const selectorVersion = estado.versiones.length > 1
       ? `<label class="field" style="max-width:320px"><span>Versión</span><select data-qz-version>${estado.versiones.map((v) => `<option value="${escapar(v.id)}" ${v.id === d.id ? "selected" : ""}>${escapar(etiquetaVersion(v))}</option>`).join("")}</select></label>`
       : "";
     const insignias = `${badge(editable ? "Borrador" : "Publicado", editable ? "warning" : "success")} ${!editable ? badge(d.habilitado ? "Habilitado" : "Deshabilitado", d.habilitado ? "success" : "neutral") : ""}`;
-    let acciones;
-    if (editable) {
+    let acciones = "";
+    if (!d.gestionable) {
+      acciones = ""; // la Dirección (u otro docente) solo consulta
+    } else if (editable) {
       acciones = `<button class="btn btn-secondary" type="button" data-qz-titulo>Renombrar</button><button class="btn btn-primary" type="button" data-qz-agregar>+ Agregar pregunta</button><button class="btn btn-primary" type="button" data-qz-publicar ${d.preguntas.length ? "" : "disabled"}>Publicar versión</button>`;
     } else {
       acciones = `<label class="master-switch"><span><strong>Habilitar preguntas</strong><small>Al activarlo, los estudiantes de este nivel podrán responderlas en su bitácora.</small></span><input type="checkbox" data-qz-habilitar ${d.habilitado ? "checked" : ""} /><i aria-hidden="true"></i></label><button class="btn btn-secondary" type="button" data-qz-nueva-version>Crear nueva versión para editar</button>`;
     }
-    const aviso = editable
+    const aviso = !d.gestionable
+      ? `<div class="notice"><span>Consulta: este cuestionario lo configura el <strong>docente asignado al nivel</strong>. Aquí puedes ver sus preguntas y si está habilitado.</span></div>`
+      : editable
       ? `<div class="notice"><span>Estás editando un <strong>borrador</strong>: los estudiantes no lo ven hasta que lo publiques. Al publicarlo queda habilitado y reemplaza la versión vigente; las bitácoras que ya usan la versión anterior no se alteran.</span></div>`
       : `<div class="notice"><span>Esta versión está <strong>publicada</strong> y no se puede modificar${d.total_bitacoras ? ` (la usan ${d.total_bitacoras} bitácora${d.total_bitacoras === 1 ? "" : "s"})` : ""}. Para cambiar preguntas crea una nueva versión.${d.publicado_en ? ` Publicada el ${escapar(fecha(d.publicado_en))}.` : ""}</span></div>`;
     return `<header class="panel-heading question-bank-heading"><div><span class="eyebrow">${escapar(nivel?.nombre || d.nivel.nombre)} · Versión ${d.numero_version}</span><h3>${escapar(d.titulo)} ${insignias}</h3><p>${d.preguntas.length} ${d.preguntas.length === 1 ? "pregunta" : "preguntas"} en esta versión.</p></div><div class="question-bank-actions">${acciones}</div></header>
@@ -131,8 +140,10 @@ export function montarCuestionarios(ui) {
     /** Dibuja la pantalla completa (armazón la primera vez y luego solo el banco). */
   function pintar() {
     if (!pagina.querySelector("#qz-banco")) {
-      pagina.innerHTML = `<header class="page-title"><div><span class="eyebrow">Configuración académica</span><h2>Cuestionarios por nivel</h2><p>Diseña las preguntas que complementan la bitácora.</p></div></header>
-        <section class="panel level-selector-panel"><header class="panel-heading"><div><h3>Niveles de práctica</h3><p>Selecciona un nivel para consultar y administrar su cuestionario.</p></div></header><div class="content-block"><label class="field"><span>Nivel de práctica</span><select data-qz-nivel>${estado.niveles.map((n) => `<option value="${escapar(n.id)}" ${n.id === estado.nivelId ? "selected" : ""}>${escapar(n.nombre)}</option>`).join("")}</select></label><div class="notice">Cada nivel mantiene un cuestionario independiente. Solo la versión habilitada aparece al estudiante.</div></div></section>
+      const encabezado = opciones.contenedor ? "" : `<header class="page-title"><div><span class="eyebrow">${puedeEditar ? "Configuración académica" : "Consulta"}</span><h2>Cuestionarios por nivel</h2><p>${puedeEditar ? "Diseña las preguntas que complementan la bitácora." : "Preguntas que cada docente configura para la bitácora de su nivel."}</p></div></header>`;
+      const unSoloNivel = Boolean(opciones.contenedor) && estado.niveles.length === 1;
+      pagina.innerHTML = `${encabezado}
+        <section class="panel level-selector-panel" ${unSoloNivel ? "hidden" : ""}><header class="panel-heading"><div><h3>Niveles de práctica</h3><p>Selecciona un nivel para consultar y administrar su cuestionario.</p></div></header><div class="content-block"><label class="field"><span>Nivel de práctica</span><select data-qz-nivel>${estado.niveles.map((n) => `<option value="${escapar(n.id)}" ${n.id === estado.nivelId ? "selected" : ""}>${escapar(n.nombre)}</option>`).join("")}</select></label><div class="notice">Cada nivel mantiene un cuestionario independiente. Solo la versión habilitada aparece al estudiante.</div></div></section>
         <section class="panel question-bank-panel" id="qz-banco"></section>`;
     }
     const banco = pagina.querySelector("#qz-banco");

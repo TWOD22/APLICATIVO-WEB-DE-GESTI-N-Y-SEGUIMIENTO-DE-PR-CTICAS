@@ -69,8 +69,11 @@ describe("API HTTP · evaluaciones y cierre de la práctica", { skip: !hayBaseDe
       assert.equal((await pedir(`/api/v1/evaluations/${id}/draft`, { token, metodo: "PUT", cuerpo: borrador })).estado, 403);
       assert.equal((await pedir(`/api/v1/evaluations/${id}/publish`, { token, metodo: "POST", cuerpo: {} })).estado, 403);
     }
+    for (const token of [tokenDirector, tokenEstudiante]) {
+      assert.equal((await pedir(`/api/v1/evaluations/${id}/correct`, { token, metodo: "POST", cuerpo: { nota: 4, motivo: "No me corresponde" } })).estado, 403);
+    }
+    assert.equal((await pedir(`/api/v1/evaluations/${id}/reopen`, { token: tokenDirector, metodo: "POST", cuerpo: { motivo: "Ya no existe" } })).estado, 404);
     for (const token of [tokenDocente, tokenAsesor, tokenEstudiante]) {
-      assert.equal((await pedir(`/api/v1/evaluations/${id}/reopen`, { token, metodo: "POST", cuerpo: { motivo: "No me corresponde" } })).estado, 403);
       assert.equal((await pedir(`/api/v1/practice-assignments/${asignacion.id}/finish`, { token, metodo: "POST" })).estado, 403);
     }
   });
@@ -177,22 +180,26 @@ describe("API HTTP · evaluaciones y cierre de la práctica", { skip: !hayBaseDe
     assert.equal(bit.estado, "EVALUADA");
   });
 
-  it("solo Dirección reabre, con motivo; el estudiante deja de ver la nota mientras tanto", async () => {
-    const ruta = `/api/v1/evaluations/${evalDocente}/reopen`;
-    const sinMotivo = await pedir(ruta, { token: tokenDirector, metodo: "POST", cuerpo: {} });
-    assert.equal(sinMotivo.estado, 400);
-    assert.equal((await pedir(ruta, { token: tokenDirector, metodo: "POST", cuerpo: { motivo: "ab" } })).estado, 400);
+  it("el docente corrige su nota con motivo; el estudiante ve la nota nueva y Dirección ve el historial", async () => {
+    const ruta = `/api/v1/evaluations/${evalDocente}/correct`;
+    assert.equal((await pedir(ruta, { token: tokenDocente, metodo: "POST", cuerpo: { nota: 4.7 } })).estado, 400, "sin motivo");
+    assert.equal((await pedir(ruta, { token: tokenDocente, metodo: "POST", cuerpo: { nota: 4.7, motivo: "ab" } })).estado, 400);
+    assert.equal((await pedir(ruta, { token: tokenDocente, metodo: "POST", cuerpo: { nota: 7, motivo: "Nota fuera de rango" } })).estado, 400);
+    assert.equal(codigo(await pedir(ruta, { token: tokenAsesor, metodo: "POST", cuerpo: { nota: 4.7, motivo: "No es mi evaluación" } })), "EVALUATION_NOT_FOUND");
 
-    const r = await pedir(ruta, { token: tokenDirector, metodo: "POST", cuerpo: { motivo: "Error al digitar la nota" } });
+    const r = await pedir(ruta, { token: tokenDocente, metodo: "POST", cuerpo: { nota: 4.7, motivo: "Error al digitar la nota" } });
     assert.equal(r.estado, 200, JSON.stringify(r.json));
-    assert.equal(r.json.data.evaluacion.estado, "BORRADOR");
-    assert.equal(r.json.data.evaluacion.motivo_reapertura, "Error al digitar la nota");
-    assert.deepEqual((await pedir("/api/v1/evaluations", { token: tokenEstudiante })).json.data.map((f) => f.tipo), ["ASESOR_SITIO"]);
-    assert.equal(codigo(await pedir(ruta, { token: tokenDirector, metodo: "POST", cuerpo: { motivo: "Otra vez" } })), "EVALUATION_NOT_PUBLISHED");
+    assert.equal(r.json.data.evaluacion.estado, "PUBLICADA");
+    assert.equal(r.json.data.evaluacion.nota, 4.7);
+    assert.equal(r.json.data.evaluacion.motivo_correccion, "Error al digitar la nota");
+    assert.equal(r.json.data.historial[0].nota, 4.5);
 
-    const corregida = await pedir(`/api/v1/evaluations/${evalDocente}/publish`, { token: tokenDocente, metodo: "POST", cuerpo: { nota: 4.7 } });
-    assert.equal(corregida.estado, 200, JSON.stringify(corregida.json));
-    assert.equal(corregida.json.data.evaluacion.nota, 4.7);
+    const est = await pedir(`/api/v1/evaluations/${evalDocente}`, { token: tokenEstudiante });
+    assert.equal(est.json.data.evaluacion.nota, 4.7);
+    assert.equal(est.json.data.historial, undefined);
+    const dir = await pedir(`/api/v1/evaluations/${evalDocente}`, { token: tokenDirector });
+    assert.equal(dir.json.data.historial.length, 1);
+    assert.equal(dir.json.data.evaluacion.corregible, false, "Dirección no corrige notas");
   });
 
   it("Dirección finaliza la práctica una sola vez y después queda cerrada", async () => {
@@ -205,7 +212,7 @@ describe("API HTTP · evaluaciones y cierre de la práctica", { skip: !hayBaseDe
     assert.ok(!JSON.stringify(r.json).includes("promedio"));
 
     assert.equal(codigo(await pedir(ruta, { token: tokenDirector, metodo: "POST" })), "ASSIGNMENT_ALREADY_FINISHED");
-    assert.equal(codigo(await pedir(`/api/v1/evaluations/${evalDocente}/reopen`, { token: tokenDirector, metodo: "POST", cuerpo: { motivo: "Ya finalizó" } })), "PRACTICE_FINISHED");
+    assert.equal(codigo(await pedir(`/api/v1/evaluations/${evalDocente}/correct`, { token: tokenDocente, metodo: "POST", cuerpo: { nota: 1, motivo: "Ya finalizó" } })), "PRACTICE_FINISHED");
     const asign = await pedir(`/api/v1/practice-assignments/${asignacion.id}`, { token: tokenDirector });
     assert.equal(asign.json.data.estado, "FINALIZADA");
   });

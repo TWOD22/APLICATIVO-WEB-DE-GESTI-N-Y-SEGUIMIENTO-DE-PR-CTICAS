@@ -6,6 +6,7 @@
  */
 import { api } from "../services/api.js";
 import { abrirEdicionUsuario, cambiarEstadoUsuario } from "./usuariosAdmin.js";
+import { cancelarPractica, ESTADOS_EDITABLES, reasignarPractica } from "./accionesPractica.js";
 
 // Textos y colores de roles, estados de usuario, práctica, bitácora y documentos.
 const NOMBRE_ROL = { ESTUDIANTE: "Estudiante", DOCENTE_SUPERVISOR: "Docente supervisor", ASESOR_SITIO: "Asesor de sitio", DIRECTOR_PROGRAMA: "Director de programa" };
@@ -94,7 +95,7 @@ export function montarPerfilUsuario(ui) {
     if (!filas.length) return `<div class="empty-state" style="padding:24px">No tiene estudiantes asignados.</div>`;
     return `<div class="table-wrap"><table><thead><tr><th>Estudiante</th><th>Práctica / periodo</th><th>Institución</th><th>Estado</th><th>Acción</th></tr></thead><tbody>${filas.map((a) => {
       const [textoE, tonoE] = ESTADO_PRACTICA[a.estado] || [a.estado, "info"];
-      return `<tr><td><div class="person"><span class="avatar">${escapar(initials(a.estudiante.nombre_completo))}</span><span><a class="profile-link" href="${pathFor("director", "perfil")}?id=${escapar(a.estudiante.id)}">${escapar(a.estudiante.nombre_completo)}</a><small>${escapar(a.estudiante.documento)}</small></span></div></td><td><strong>${escapar(a.nivel.nombre)}</strong><small>${escapar(a.periodo.codigo)}</small></td><td><strong>${escapar(a.institucion.nombre)}</strong><small>${escapar(contraparte(a))}</small></td><td>${badge(textoE, tonoE)}</td><td><a class="btn btn-secondary" href="${pathFor("director", "practica")}?id=${escapar(a.id)}">Ver práctica</a></td></tr>`;
+      return `<tr><td><div class="person"><span class="avatar">${escapar(initials(a.estudiante.nombre_completo))}</span><span><a class="profile-link" href="${pathFor("director", "perfil")}?id=${escapar(a.estudiante.id)}">${escapar(a.estudiante.nombre_completo)}</a><small>${escapar(a.estudiante.documento)}</small></span></div></td><td><strong>${escapar(a.nivel.nombre)}</strong><small>${escapar(a.periodo.codigo)}</small></td><td><strong>${escapar((a.institucion?.nombre ?? "Sin institución asignada"))}</strong><small>${escapar(contraparte(a))}</small></td><td>${badge(textoE, tonoE)}</td><td><a class="btn btn-secondary" href="${pathFor("director", "practica")}?id=${escapar(a.id)}">Ver práctica</a></td></tr>`;
     }).join("")}</tbody></table></div>`;
   }
 
@@ -260,11 +261,12 @@ export function montarPracticaDirector(ui) {
     const puedeDevolver = b && ["ENVIADA", "EN_EVALUACION"].includes(b.estado) && !publicadas.length && !finalizada;
     const [textoP, tonoP] = ESTADO_PRACTICA[a.estado] || [a.estado, "info"];
     return `<aside class="panel practice-evaluation-summary sticky"><span class="eyebrow">Evaluaciones independientes</span><h3>Calificaciones</h3>${tarjetas}<div class="notice">Las calificaciones se presentan por separado y no se promedian.</div>
-      <dl class="mini-detail-list"><div><dt>Periodo</dt><dd>${escapar(a.periodo.codigo)}</dd></div><div><dt>Institución</dt><dd>${escapar(a.institucion.nombre)}</dd></div><div><dt>Estado</dt><dd>${escapar(textoP)}</dd></div></dl>
+      <dl class="mini-detail-list"><div><dt>Periodo</dt><dd>${escapar(a.periodo.codigo)}</dd></div><div><dt>Institución</dt><dd>${escapar((a.institucion?.nombre ?? "Sin institución asignada"))}</dd></div><div><dt>Estado</dt><dd>${escapar(textoP)}</dd></div></dl>
       <p class="form-error" role="alert" data-pd-error hidden></p>
       ${puedeFinalizar ? `<button class="btn btn-primary btn-block" type="button" data-pd-finalizar>Finalizar práctica</button>` : enEvaluacion ? `<p class="muted">Podrás finalizar la práctica cuando el docente y el asesor publiquen sus evaluaciones.</p>` : ""}
       ${puedeDevolver ? `<button class="btn btn-secondary btn-block" type="button" data-pd-devolver>Devolver bitácora al estudiante</button>` : ""}
-      ${b && ["ENVIADA", "EN_EVALUACION", "EVALUADA", "DEVUELTA"].includes(b.estado) ? `<button class="btn btn-ghost btn-block" type="button" data-export-logbook="${escapar(b.id)}">${icon("file")} Exportar a PDF</button>` : ""}</aside>`;
+      ${b && ["ENVIADA", "EN_EVALUACION", "EVALUADA", "DEVUELTA"].includes(b.estado) ? `<button class="btn btn-ghost btn-block" type="button" data-export-logbook="${escapar(b.id)}">${icon("file")} Exportar a PDF</button>` : ""}
+      ${ESTADOS_EDITABLES.includes(a.estado) ? `<div class="practice-admin-actions"><button class="btn btn-secondary btn-block" type="button" data-pd-reasignar>Cambiar institución o asesor</button><button class="btn btn-danger btn-block" type="button" data-pd-cancelar>Cancelar práctica</button></div>` : ""}</aside>`;
   }
 
     /** Dibuja el encabezado y las pestañas de la práctica. */
@@ -280,9 +282,9 @@ export function montarPracticaDirector(ui) {
     const finalizada = a.estado === "FINALIZADA";
 
     pagina.innerHTML = `<nav class="breadcrumbs"><a href="${pathFor("director", "usuarios")}">Gestión de usuarios</a><span>/</span><a href="${pathFor("director", "perfil")}?id=${escapar(a.estudiante.id)}">${escapar(a.estudiante.nombre_completo)}</a><span>/</span><strong>${escapar(a.nivel.nombre)}</strong></nav>
-      <header class="profile-hero practice-detail-hero"><div class="person"><span class="avatar profile-avatar">${escapar(initials(a.estudiante.nombre_completo))}</span><div><span class="eyebrow">${escapar(a.periodo.codigo)}</span><h2>${escapar(a.nivel.nombre)} · ${escapar(a.estudiante.nombre_completo)}</h2><p>${escapar(a.institucion.nombre)}${a.institucion.ciudad ? ` · ${escapar(a.institucion.ciudad)}` : ""}</p></div></div><div class="profile-hero-actions">${badge(textoP, tonoP)}<a class="btn btn-secondary" href="${pathFor("director", "perfil")}?id=${escapar(a.estudiante.id)}">Volver al perfil</a></div></header>
+      <header class="profile-hero practice-detail-hero"><div class="person"><span class="avatar profile-avatar">${escapar(initials(a.estudiante.nombre_completo))}</span><div><span class="eyebrow">${escapar(a.periodo.codigo)}</span><h2>${escapar(a.nivel.nombre)} · ${escapar(a.estudiante.nombre_completo)}</h2><p>${escapar((a.institucion?.nombre ?? "Sin institución asignada"))}${a.institucion?.ciudad ? ` · ${escapar(a.institucion?.ciudad)}` : ""}</p></div></div><div class="profile-hero-actions">${badge(textoP, tonoP)}<a class="btn btn-secondary" href="${pathFor("director", "perfil")}?id=${escapar(a.estudiante.id)}">Volver al perfil</a></div></header>
       ${a.estado === "CANCELADA" ? `<div class="notice"><strong>Práctica cancelada.</strong> ${escapar(a.motivo_cancelacion || "")}</div>` : ""}
-      <section class="panel practice-assignment-summary"><div><span class="eyebrow">Asignación académica</span><h3>${escapar(a.institucion.nombre)}</h3></div><div><span>Docente supervisor</span><strong>${escapar(a.docente?.nombre_completo || "Sin asignar")}</strong></div><div><span>Asesor de sitio</span><strong>${escapar(a.asesor?.nombre_completo || "Sin asignar")}</strong></div><div><span>Estado documental</span><strong>${escapar(resumenDocs)}</strong></div></section>
+      <section class="panel practice-assignment-summary"><div><span class="eyebrow">Asignación académica</span><h3>${escapar((a.institucion?.nombre ?? "Sin institución asignada"))}</h3></div><div><span>Docente supervisor</span><strong>${escapar(a.docente?.nombre_completo || "Sin asignar")}</strong></div><div><span>Asesor de sitio</span><strong>${escapar(a.asesor?.nombre_completo || "Sin asignar")}</strong></div><div><span>Estado documental</span><strong>${escapar(resumenDocs)}</strong></div></section>
       <div class="tabs practice-detail-tabs" role="tablist"><button class="${pestana === "journal" ? "" : "active"}" type="button" role="tab" data-pd-tab="documents">Expediente / Soporte documental <span>${docs ? docs.documentos.length : 0}</span></button><button class="${pestana === "journal" ? "active" : ""}" type="button" role="tab" data-pd-tab="journal">Bitácora y evaluaciones</button></div>
       <section data-pd-panel="documents" role="tabpanel" ${pestana === "journal" ? "hidden" : ""}><article class="panel"><header class="panel-heading"><div><h3>Expediente de ${escapar(a.nivel.nombre)}</h3><p>Documentos exclusivos del periodo ${escapar(a.periodo.codigo)}. No se mezclan con otros niveles.</p></div>${docs ? badge(resumenDocs, docsCompletos ? "success" : "warning") : ""}</header>${listaDocs}${finalizada ? "" : `<div style="padding:16px 20px"><a class="btn btn-secondary" href="${pathFor("director", "auditoria")}?asignacion=${escapar(a.id)}">Revisar en Auditoría documental →</a></div>`}</article></section>
       <section data-pd-panel="journal" role="tabpanel" ${pestana === "journal" ? "" : "hidden"}><div class="practice-detail-grid director-journal-view"><main>${panelBitacora(a, bitacora)}</main>${panelEvaluaciones(a, bitacora, evaluaciones, detalles)}</div></section>`;
@@ -382,7 +384,10 @@ export function montarPracticaDirector(ui) {
       return;
     }
     if (e.target.closest("[data-pd-finalizar]")) confirmarFinalizar();
+    if (e.target.closest("[data-pd-reasignar]")) reasignarPractica(ui, estado.datos.asignacion, () => cargar());
+    if (e.target.closest("[data-pd-cancelar]")) cancelarPractica(ui, estado.datos.asignacion, () => cargar());
   });
 
-  cargar();
+  // Desde el panel de Dirección se puede abrir directo la pestaña de evaluaciones (?pestana=evaluaciones).
+  cargar(new URLSearchParams(window.location.search).get("pestana") === "evaluaciones" ? "journal" : null);
 }

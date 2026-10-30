@@ -6,7 +6,10 @@ import { after, before, describe, it } from "node:test";
 import { hayBaseDePruebas, prepararEscenario, rechaza } from "../helpers/escenario.js";
 
 describe("cuestionarios y versionado + PostgreSQL real", { skip: !hayBaseDePruebas() && "defina TEST_DATABASE_URL" }, () => {
-  let esc, service, v1, v2;
+  let esc, service, real, v1, v2, docente, docente2;
+  // Los casos de uso reciben `auth` al final: este envoltorio los llama como el docente de los niveles 1 y 2.
+  const comoDocente = (real, auth) =>
+    new Proxy(real, { get: (obj, clave) => (typeof obj[clave] === "function" ? (...args) => obj[clave](...args, auth) : obj[clave]) });
   const crear = (extra) => service.crear({ nivel_practica_id: esc.niveles[1], ...extra }, esc.ctx);
   const abierta = (extra) => ({ tipo: "ABIERTA", enunciado: "¿Qué aprendiste esta semana?", obligatoria: true, ...extra });
   const unica = { tipo: "CERRADA_UNICA", enunciado: "¿Cómo fue el clima del aula?", obligatoria: true, opciones: [{ etiqueta: "Excelente" }, { etiqueta: "Bueno" }, { etiqueta: "Difícil" }] };
@@ -15,7 +18,12 @@ describe("cuestionarios y versionado + PostgreSQL real", { skip: !hayBaseDePrueb
 
   before(async () => {
     esc = await prepararEscenario();
-    service = await import("../../src/services/questionnaireService.js");
+    real = await import("../../src/services/questionnaireService.js");
+    docente = await esc.persona({ rol: "DOCENTE_SUPERVISOR", documento: "3000000001", nombres: "Juan", apellidos: "Suárez", correo: "juan@udi.test" });
+    docente2 = await esc.persona({ rol: "DOCENTE_SUPERVISOR", documento: "3000000002", nombres: "Sara", apellidos: "Torres", correo: "sara@udi.test" });
+    await esc.docenteDeNivel(docente, esc.niveles[1]);
+    await esc.docenteDeNivel(docente, esc.niveles[2]);
+    service = comoDocente(real, esc.como("DOCENTE_SUPERVISOR", docente));
   });
   after(async () => {
     if (esc?.cerrarPool) await esc.cerrarPool();
@@ -150,6 +158,59 @@ describe("cuestionarios y versionado + PostgreSQL real", { skip: !hayBaseDePrueb
     it("un cuestionario inexistente responde 404", async () => {
       await rechaza(service.obtener("00000000-0000-4000-8000-000000000000"), { estado: 404, codigo: "QUESTIONNAIRE_NOT_FOUND" });
       await rechaza(service.publicar("00000000-0000-4000-8000-000000000000", esc.ctx), { estado: 404, codigo: "QUESTIONNAIRE_NOT_FOUND" });
+    });
+  });
+
+  describe("permisos del flujo v2: el cuestionario lo gestiona el docente del nivel", () => {
+    const ajeno = () => comoDocente(real, esc.como("DOCENTE_SUPERVISOR", docente2));
+    const director = () => comoDocente(real, esc.director());
+
+    it("Dirección y un docente de otro nivel consultan, pero no modifican", async () => {
+      const lista = await director().listar({ nivel_practica_id: esc.niveles[1] });
+      assert.ok(lista.length > 0 && lista.every((c) => c.gestionable === false));
+      const detalle = await director().obtener(v1.id);
+      assert.equal(detalle.editable, false);
+      assert.equal((await ajeno().obtener(v1.id)).editable, false);
+
+      for (const quien of [director(), ajeno()]) {
+        await rechaza(quien.crear({ nivel_practica_id: esc.niveles[1], sin_copia: true }, esc.ctx), { estado: 403, codigo: "NOT_LEVEL_TEACHER" });
+        await rechaza(quien.actualizar(v1.id, { titulo: "Nuevo título" }), { estado: 403, codigo: "NOT_LEVEL_TEACHER" });
+        await rechaza(quien.agregarPregunta(v1.id, abierta()), { estado: 403, codigo: "NOT_LEVEL_TEACHER" });
+        await rechaza(quien.publicar(v1.id, esc.ctx), { estado: 403, codigo: "NOT_LEVEL_TEACHER" });
+        await rechaza(quien.cambiarHabilitado(v1.id, { habilitado: false }, esc.ctx), { estado: 403, codigo: "NOT_LEVEL_TEACHER" });
+        await rechaza(quien.reordenar(v1.id, { orden: [] }), { estado: 403, codigo: "NOT_LEVEL_TEACHER" });
+      }
+      const pregunta = (await service.obtener(v1.id)).preguntas[0];
+      await rechaza(ajeno().actualizarPregunta(pregunta.id, { enunciado: "Cambio ajeno" }), { estado: 403, codigo: "NOT_LEVEL_TEACHER" });
+      await rechaza(ajeno().eliminarPregunta(pregunta.id), { estado: 403, codigo: "NOT_LEVEL_TEACHER" });
+      await rechaza(ajeno().obtener("00000000-0000-4000-8000-000000000000"), { estado: 404, codigo: "QUESTIONNAIRE_NOT_FOUND" });
+    });
+
+    it("el docente del nivel marca sus cuestionarios como gestionables", async () => {
+      const lista = await service.listar({ nivel_practica_id: esc.niveles[1] });
+      assert.ok(lista.every((c) => c.gestionable === true));
+    });
+
+    it("al publicar, Dirección recibe un aviso y el docente ve cuántas bitácoras recibirán la versión", async () => {
+      // el nivel 2 ya tiene un borrador vacío de pruebas anteriores
+      const borrador = (await service.listar({ nivel_practica_id: esc.niveles[2] })).find((c) => c.estado === "BORRADOR");
+      await service.agregarPregunta(borrador.id, abierta({ enunciado: "Pregunta para el nivel dos" }));
+      const impacto = await service.impactoDePublicar(borrador.id);
+      assert.deepEqual(Object.keys(impacto).sort(), ["conservan", "cuestionario_id", "nivel", "recibiran"]);
+      assert.equal(impacto.recibiran, 0);
+      await rechaza(ajeno().impactoDePublicar(borrador.id), { estado: 403, codigo: "NOT_LEVEL_TEACHER" });
+      const antes = esc.avisos("CUESTIONARIO_PUBLICADO").length;
+      const publicado = await service.publicar(borrador.id, esc.ctx);
+      assert.equal(publicado.impacto.recibiran, 0);
+      assert.equal(esc.avisos("CUESTIONARIO_PUBLICADO").length, antes + 1);
+      assert.equal(esc.avisos("CUESTIONARIO_PUBLICADO").at(-1).ruta.startsWith("notificaciones_usuario/"), true);
+    });
+
+    it("copia preguntas de otro nivel solo si esa versión está publicada", async () => {
+      const publicadaN2 = (await service.listar({ nivel_practica_id: esc.niveles[2] })).find((c) => c.estado === "PUBLICADO");
+      const copia = await service.crear({ nivel_practica_id: esc.niveles[1], copiar_de: publicadaN2.id }, esc.ctx);
+      assert.deepEqual(copia.preguntas.map((p) => p.enunciado), ["Pregunta para el nivel dos"]);
+      await rechaza(service.crear({ nivel_practica_id: esc.niveles[1], copiar_de: copia.id }, esc.ctx), { estado: 409, codigo: "DRAFT_ALREADY_EXISTS" });
     });
   });
 });

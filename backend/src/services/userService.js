@@ -68,7 +68,7 @@ async function validarDuplicados({ documento, correo, excluirId = null }) {
   }
 }
 
-/** Lista usuarios con filtros (rol, semestre, estado, búsqueda) y paginación. */
+/** Lista usuarios con filtros (rol, semestre, estado, situación de práctica, búsqueda) y paginación. */
 export async function listar(filtros) {
   const { filas, total } = await userRepository.listar(filtros);
   return {

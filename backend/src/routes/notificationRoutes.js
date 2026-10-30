@@ -8,8 +8,7 @@ import { authorize } from "../middlewares/authorize.js";
 import { validar } from "../middlewares/validate.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
 import { LISTA_ROLES } from "../utils/constants.js";
-import { idParamSchema } from "../validators/commonSchemas.js";
-import { listarNotificacionesQuery } from "../validators/notificationSchemas.js";
+import { listarNotificacionesQuery, notificacionIdParams } from "../validators/notificationSchemas.js";
 
 /** Bandeja de notificaciones del usuario autenticado (cualquier rol). Se monta en /notifications. */
 const router = Router();
@@ -21,6 +20,11 @@ router.get("/", validar({ query: listarNotificacionesQuery }), asyncHandler(cont
 // Marcar todas como leídas.
 router.patch("/read-all", asyncHandler(controller.marcarTodasLeidas));
 // Marcar una como leída.
-router.patch("/:id/read", validar({ params: idParamSchema }), asyncHandler(controller.marcarLeida));
+router.patch("/:id/read", validar({ params: notificacionIdParams }), asyncHandler(controller.marcarLeida));
+
+// Borrar todas las notificaciones del usuario.
+router.delete("/", asyncHandler(controller.eliminarTodas));
+// Borrar una.
+router.delete("/:id", validar({ params: notificacionIdParams }), asyncHandler(controller.eliminar));
 
 export default router;

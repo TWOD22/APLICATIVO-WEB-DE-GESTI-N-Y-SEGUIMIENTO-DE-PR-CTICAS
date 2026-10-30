@@ -8,7 +8,7 @@ import { obtenerIdToken } from "./auth.js";
 // URL base de la API (VITE_API_URL en el .env o, por defecto, el servidor local).
 const API_URL = (import.meta.env.VITE_API_URL || "http://localhost:3000/api/v1").replace(/\/$/, "");
 const CLAVE_ROL_ACTIVO = "rolActivo";
-export const LOGIN_URL = "/frontend/pages/auth/login.html";
+export const LOGIN_URL = "/";
 
 // El rol activo se guarda en sessionStorage (solo dura mientras la pestaña esté abierta).
 export const rolActivoGuardado = () => {

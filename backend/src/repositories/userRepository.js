@@ -93,7 +93,20 @@ export async function cambiarEstado(id, estado, db = pool) {
 }
 
 /** Lista con filtros, búsqueda y paginación. */
-export async function listar({ q, rol, semestre, estado, limit, offset }, db = pool) {
+/**
+ * Situación de práctica del estudiante en el periodo activo (NULL si no es estudiante o no tiene matrícula en él):
+ * SIN_SOLICITUD, SOLICITUD (enviada o devuelta; un borrador cuenta como SIN_SOLICITUD), EN_PRACTICA (activa o en evaluación), FINALIZADA o RECHAZADA.
+ */
+const PRACTICA_ESTADO_SQL = `CASE
+    WHEN ap.matriculado IS NULL THEN NULL
+    WHEN ap.asig_estado IS NULL OR ap.asig_estado = 'BORRADOR' THEN 'SIN_SOLICITUD' -- un borrador aún no llegó a Dirección
+    WHEN ap.asig_estado IN ('ENVIADA', 'DEVUELTA', 'PENDIENTE_DOCUMENTOS', 'DOCUMENTOS_APROBADOS', 'PLAZA_SELECCIONADA') THEN 'SOLICITUD'
+    WHEN ap.asig_estado IN ('ACTIVA', 'PENDIENTE_EVALUACION') THEN 'EN_PRACTICA'
+    WHEN ap.asig_estado = 'FINALIZADA' THEN 'FINALIZADA'
+    WHEN ap.asig_estado = 'RECHAZADA' THEN 'RECHAZADA'
+  END`;
+
+export async function listar({ q, rol, semestre, estado, practica, limit, offset }, db = pool) {
   const parametros = [];
   const p = (valor) => {
     parametros.push(valor);
@@ -115,6 +128,7 @@ export async function listar({ q, rol, semestre, estado, limit, offset }, db = p
   }
   if (semestre) condiciones.push(`m.semestre = ${p(semestre)}::smallint`);
   if (estado) condiciones.push(`u.estado = ${p(estado)}::estado_usuario`);
+  if (practica) condiciones.push(`(${PRACTICA_ESTADO_SQL}) = ${p(practica)}`);
 
   const limite = p(limit);
   const desplazamiento = p(offset);
@@ -123,6 +137,7 @@ export async function listar({ q, rol, semestre, estado, limit, offset }, db = p
     `SELECT u.id, u.numero_documento AS documento, u.nombres, u.apellidos, u.correo_institucional AS correo, u.telefono, u.estado, u.creado_en,
             COALESCE(array_agg(DISTINCT r.codigo) FILTER (WHERE r.codigo IS NOT NULL), '{}') AS roles,
             m.semestre,
+            ${PRACTICA_ESTADO_SQL} AS practica_estado, ap.nivel_codigo AS practica_nivel,
             count(*) OVER() AS total
        FROM usuarios u
        LEFT JOIN usuarios_roles ur ON ur.usuario_id = u.id AND ur.eliminado_en IS NULL
@@ -135,8 +150,18 @@ export async function listar({ q, rol, semestre, estado, limit, offset }, db = p
                ORDER BY pe.fecha_inicio DESC
                LIMIT 1
             ) m ON true
+       LEFT JOIN LATERAL (
+              SELECT a.estado::text AS asig_estado, n.codigo::text AS nivel_codigo, true AS matriculado
+                FROM matriculas_estudiantes me2
+                JOIN periodos_academicos pe2 ON pe2.id = me2.periodo_academico_id AND pe2.estado = 'ACTIVO' AND pe2.eliminado_en IS NULL
+                LEFT JOIN asignaciones_practica a ON a.matricula_estudiante_id = me2.id AND a.eliminado_en IS NULL AND a.estado <> 'CANCELADA'
+                LEFT JOIN niveles_practica n ON n.id = a.nivel_practica_id
+               WHERE me2.estudiante_id = u.id AND me2.eliminado_en IS NULL
+               ORDER BY a.creado_en DESC NULLS LAST
+               LIMIT 1
+            ) ap ON true
       WHERE ${condiciones.join(" AND ")}
-      GROUP BY u.id, m.semestre
+      GROUP BY u.id, m.semestre, ap.asig_estado, ap.nivel_codigo, ap.matriculado
       ORDER BY u.apellidos, u.nombres, u.id
       LIMIT ${limite} OFFSET ${desplazamiento}`,
     parametros
@@ -180,7 +205,7 @@ export async function listarHistorialPracticas(estudianteId, db = pool) {
        JOIN matriculas_estudiantes m ON m.id = a.matricula_estudiante_id
        JOIN periodos_academicos pe ON pe.id = m.periodo_academico_id
        JOIN niveles_practica n ON n.id = a.nivel_practica_id
-       JOIN instituciones i ON i.id = a.institucion_id
+       LEFT JOIN instituciones i ON i.id = a.institucion_id
        LEFT JOIN usuarios d ON d.id = a.docente_supervisor_id
        LEFT JOIN usuarios s ON s.id = a.asesor_sitio_id
        LEFT JOIN bitacoras b ON b.asignacion_practica_id = a.id AND b.eliminado_en IS NULL
