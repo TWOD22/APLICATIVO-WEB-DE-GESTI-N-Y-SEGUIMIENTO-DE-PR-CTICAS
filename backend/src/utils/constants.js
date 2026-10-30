@@ -31,6 +31,10 @@ export const ESTADOS_CONVENIO = Object.freeze(["VIGENTE", "EN_TRAMITE", "SUSPEND
 /** Estados de una asignación que se consideran "en curso" (impiden deshabilitar sin confirmar). */
 export const ESTADOS_ASIGNACION_EN_CURSO = Object.freeze([
   "PENDIENTE_DOCUMENTOS",
+  "ENVIADA",
+  "DEVUELTA",
+  "DOCUMENTOS_APROBADOS",
+  "PLAZA_SELECCIONADA",
   "ACTIVA",
   "PENDIENTE_EVALUACION",
 ]);

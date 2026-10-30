@@ -53,6 +53,8 @@ describe("bitácoras, borradores, evidencias y envío + PostgreSQL real", { skip
     asesor = await esc.persona({ rol: "ASESOR_SITIO", documento: "4000000001", nombres: "Ana", apellidos: "Gómez", correo: "ana@jardin.test", institucion_id: esc.inst.id });
     asesor2 = await esc.persona({ rol: "ASESOR_SITIO", documento: "4000000002", nombres: "Luis", apellidos: "Mora", correo: "luis@jardin2.test", institucion_id: esc.inst2.id });
 
+    await esc.docenteDeNivel(docente, esc.niveles[1]);
+    const comoDocente = esc.como("DOCENTE_SUPERVISOR", docente);
     const completa = { docente_supervisor_id: docente.id, asesor_sitio_id: asesor.id };
     aj1 = await esc.crearAsignacion(est1, completa);
     aj2 = await esc.crearAsignacion(est2, completa);
@@ -60,11 +62,11 @@ describe("bitácoras, borradores, evidencias y envío + PostgreSQL real", { skip
     aj4 = await esc.crearAsignacion(est4, completa);
 
     // Cuestionario del nivel 1: una abierta obligatoria, una cerrada única obligatoria y una múltiple opcional.
-    const c = await cuestionarios.crear({ nivel_practica_id: esc.niveles[1], sin_copia: true }, esc.ctx);
-    await cuestionarios.agregarPregunta(c.id, { tipo: "ABIERTA", enunciado: "¿Qué aprendiste?", obligatoria: true });
-    await cuestionarios.agregarPregunta(c.id, { tipo: "CERRADA_UNICA", enunciado: "¿Cómo fue el clima?", obligatoria: true, opciones: [{ etiqueta: "Excelente" }, { etiqueta: "Bueno" }] });
-    await cuestionarios.agregarPregunta(c.id, { tipo: "CERRADA_MULTIPLE", enunciado: "¿Qué estrategias usaste?", obligatoria: false, opciones: [{ etiqueta: "Juego" }, { etiqueta: "Arte" }] });
-    const publicado = await cuestionarios.publicar(c.id, esc.ctx);
+    const c = await cuestionarios.crear({ nivel_practica_id: esc.niveles[1], sin_copia: true }, esc.ctx, comoDocente);
+    await cuestionarios.agregarPregunta(c.id, { tipo: "ABIERTA", enunciado: "¿Qué aprendiste?", obligatoria: true }, comoDocente);
+    await cuestionarios.agregarPregunta(c.id, { tipo: "CERRADA_UNICA", enunciado: "¿Cómo fue el clima?", obligatoria: true, opciones: [{ etiqueta: "Excelente" }, { etiqueta: "Bueno" }] }, comoDocente);
+    await cuestionarios.agregarPregunta(c.id, { tipo: "CERRADA_MULTIPLE", enunciado: "¿Qué estrategias usaste?", obligatoria: false, opciones: [{ etiqueta: "Juego" }, { etiqueta: "Arte" }] }, comoDocente);
+    const publicado = await cuestionarios.publicar(c.id, esc.ctx, comoDocente);
     preguntas = { abierta: publicado.preguntas[0], unica: publicado.preguntas[1], multiple: publicado.preguntas[2] };
   });
 
@@ -450,9 +452,9 @@ describe("bitácoras, borradores, evidencias y envío + PostgreSQL real", { skip
 
     describe("versionado de cuestionarios frente a bitácoras ya iniciadas", () => {
       it("una nueva versión no altera las bitácoras existentes; las nuevas toman la vigente", async () => {
-        const nuevaVersion = await cuestionarios.crear({ nivel_practica_id: esc.niveles[1] }, esc.ctx);
-        await cuestionarios.agregarPregunta(nuevaVersion.id, { tipo: "ABIERTA", enunciado: "Pregunta solo de la versión 2", obligatoria: false });
-        await cuestionarios.publicar(nuevaVersion.id, esc.ctx);
+        const nuevaVersion = await cuestionarios.crear({ nivel_practica_id: esc.niveles[1] }, esc.ctx, esc.como("DOCENTE_SUPERVISOR", docente));
+        await cuestionarios.agregarPregunta(nuevaVersion.id, { tipo: "ABIERTA", enunciado: "Pregunta solo de la versión 2", obligatoria: false }, esc.como("DOCENTE_SUPERVISOR", docente));
+        await cuestionarios.publicar(nuevaVersion.id, esc.ctx, esc.como("DOCENTE_SUPERVISOR", docente));
 
         assert.equal((await bitacoras.obtener(vista1.id, E(est1))).cuestionario.numero_version, 1, "la bitácora de Laura conserva la v1");
         assert.equal((await bitacoras.obtenerDeAsignacion(aj2.id, E(est2))).cuestionario.numero_version, 1, "la de Mario ya estaba enlazada a la v1");

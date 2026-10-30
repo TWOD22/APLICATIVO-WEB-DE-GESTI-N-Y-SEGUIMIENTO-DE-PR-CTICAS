@@ -127,7 +127,20 @@ describe("Notificaciones del usuario", { skip: !hayBaseDePruebas() && "defina TE
 
       assert.equal((await pedir("/api/v1/notifications?page=0", { token: tokenLaura })).estado, 400);
       assert.equal((await pedir("/api/v1/notifications?solo_no_leidas=quizas", { token: tokenLaura })).estado, 400);
-      assert.equal((await pedir("/api/v1/notifications/no-es-uuid/read", { token: tokenLaura, metodo: "PATCH" })).estado, 400);
+      assert.equal((await pedir("/api/v1/notifications/no%20valido/read", { token: tokenLaura, metodo: "PATCH" })).estado, 400);
+    });
+
+    it("marca y borra notificaciones cuyo id no es un UUID (las del servicio de notificaciones)", async () => {
+      const { obtenerFirestore } = await import("../../src/config/firebase.js");
+      const elementos = obtenerFirestore().collection("notificaciones_usuario").doc(laura.firebase_uid).collection("elementos");
+      await elementos.doc("evento-abc123_0").set({ ...aviso(7), prioridad: "normal", entidad: null, leida: false, fecha: new Date() });
+      const lista = (await pedir("/api/v1/notifications?page_size=50", { token: tokenLaura })).json.data;
+      assert.ok(lista.some((n) => n.id === "evento-abc123_0"));
+      const leida = await pedir("/api/v1/notifications/evento-abc123_0/read", { token: tokenLaura, metodo: "PATCH" });
+      assert.equal(leida.estado, 200, JSON.stringify(leida.json));
+      const borrada = await pedir("/api/v1/notifications/evento-abc123_0", { token: tokenLaura, metodo: "DELETE" });
+      assert.equal(borrada.estado, 200, JSON.stringify(borrada.json));
+      assert.ok(!(await pedir("/api/v1/notifications?page_size=50", { token: tokenLaura })).json.data.some((n) => n.id === "evento-abc123_0"));
     });
 
     it("marca una y todas por HTTP sin tocar las de otro usuario", async () => {
@@ -146,6 +159,31 @@ describe("Notificaciones del usuario", { skip: !hayBaseDePruebas() && "defina TE
       assert.equal(todas.estado, 200);
       assert.deepEqual(todas.json.data, { actualizadas: 1 });
       assert.equal((await pedir("/api/v1/notifications?solo_no_leidas=true", { token: tokenMario })).json.meta.total, 0);
+    });
+
+    it("borra una y todas, solo en la bandeja del usuario de la sesión", async () => {
+      assert.equal((await pedir("/api/v1/notifications", { metodo: "DELETE" })).estado, 401);
+      await crearNotificacion(mario.firebase_uid, aviso(200));
+      await crearNotificacion(mario.firebase_uid, aviso(201));
+      const [primera] = (await pedir("/api/v1/notifications", { token: tokenMario })).json.data;
+
+      // otra persona no puede borrarla: para ella no existe
+      const ajena = await pedir(`/api/v1/notifications/${primera.id}`, { token: tokenLaura, metodo: "DELETE" });
+      assert.equal(ajena.estado, 404);
+      assert.equal(ajena.json.error.code, "NOTIFICATION_NOT_FOUND");
+
+      const borrada = await pedir(`/api/v1/notifications/${primera.id}`, { token: tokenMario, metodo: "DELETE" });
+      assert.equal(borrada.estado, 200);
+      assert.deepEqual(borrada.json.data, { eliminada: true });
+      assert.equal((await pedir(`/api/v1/notifications/${primera.id}`, { token: tokenMario, metodo: "DELETE" })).estado, 404);
+      assert.equal((await pedir("/api/v1/notifications/no%20valido", { token: tokenMario, metodo: "DELETE" })).estado, 400);
+
+      const restantes = (await pedir("/api/v1/notifications", { token: tokenMario })).json.meta.total;
+      const todas = await pedir("/api/v1/notifications", { token: tokenMario, metodo: "DELETE" });
+      assert.equal(todas.estado, 200);
+      assert.deepEqual(todas.json.data, { eliminadas: restantes });
+      assert.equal((await pedir("/api/v1/notifications", { token: tokenMario })).json.meta.total, 0);
+      assert.equal((await pedir("/api/v1/notifications", { token: tokenLaura })).json.meta.total, 5, "la bandeja de Laura no cambia");
     });
   });
 });

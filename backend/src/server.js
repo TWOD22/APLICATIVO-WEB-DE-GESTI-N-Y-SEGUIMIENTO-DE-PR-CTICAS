@@ -7,11 +7,15 @@ import { env } from "./config/env.js";
 import { logger } from "./config/logger.js";
 import { cerrarPool } from "./config/database.js";
 import { crearApp } from "./app.js";
+import { iniciarPublicador } from "./services/outboxPublisher.js";
 
 const app = crearApp();
 const servidor = app.listen(env.PORT, () => {
   logger.info({ puerto: env.PORT, entorno: env.NODE_ENV }, "API de prácticas UDI en ejecución");
 });
+
+// Con EVENTS_MODE=outbox, un publicador envía los eventos pendientes al servicio de notificaciones y auditoría.
+const detenerPublicador = env.EVENTS_MODE === "outbox" ? iniciarPublicador() : () => {};
 
 // Evita ejecutar el apagado dos veces si llegan varias señales seguidas.
 let cerrando = false;
@@ -23,6 +27,7 @@ async function apagar(senal) {
   // Si el cierre ordenado tarda demasiado, forzar la salida.
   const forzado = setTimeout(() => process.exit(1), 10_000);
   forzado.unref();
+  detenerPublicador();
   servidor.close(async () => {
     try {
       await cerrarPool();

@@ -96,6 +96,12 @@ export async function prepararEscenario() {
     return { ...creado, firebase_uid: await firebaseUid(creado) };
   };
 
+  /** Define al docente de un nivel en el periodo activo (el flujo v2 exige que el cuestionario lo gestione ese docente). */
+  const docenteDeNivel = async (docente, nivelId) => {
+    const niveles = await import("../../src/services/levelTeacherService.js");
+    return niveles.definir(nivelId, { docente_id: docente.id }, ctx);
+  };
+
   const crearAsignacion = (estudiante, extra = {}) =>
     asignaciones.crear(
       {
@@ -147,7 +153,7 @@ export async function prepararEscenario() {
 
   return {
     pool, cerrarPool, firebase, almacen, eliminados, ctx, dir, inst, inst2, niveles, tipos,
-    como, ctxDe, persona, crearAsignacion, habilitarBitacora, entregarBitacora, eventos, auditoria, avisos,
+    como, ctxDe, persona, docenteDeNivel, crearAsignacion, habilitarBitacora, entregarBitacora, eventos, auditoria, avisos,
     director: () => como("DIRECTOR_PROGRAMA", { id: dir.id, firebase_uid: DIRECTOR.firebase_uid }),
   };
 }

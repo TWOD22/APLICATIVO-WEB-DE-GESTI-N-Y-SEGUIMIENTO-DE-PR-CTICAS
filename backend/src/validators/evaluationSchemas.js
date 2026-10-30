@@ -1,5 +1,5 @@
 /**
- * Validación de evaluaciones: borrador, publicación (nota y retroalimentación), reapertura y filtros de listado.
+ * Validación de evaluaciones: borrador, publicación (nota y retroalimentación), corrección y filtros de listado.
  */
 import { z } from "zod";
 import { EVALUACION, PAGINA_TAMANO_MAXIMO, PAGINA_TAMANO_POR_DEFECTO } from "../utils/constants.js";
@@ -43,8 +43,13 @@ export const publicarEvaluacionBody = z
   })
   .strict();
 
-export const reabrirEvaluacionBody = z
-  .object({ motivo: z.string().trim().min(5, "Describe el motivo (mínimo 5 caracteres)").max(500) })
+/** Corrección de una nota ya publicada: la nota nueva y el motivo son obligatorios; la retroalimentación es opcional. */
+export const corregirEvaluacionBody = z
+  .object({
+    nota,
+    retroalimentacion: retroalimentacion.nullable().optional(),
+    motivo: z.string().trim().min(5, "Describe el motivo (mínimo 5 caracteres)").max(500),
+  })
   .strict();
 
 export const listarEvaluacionesQuery = z.object({

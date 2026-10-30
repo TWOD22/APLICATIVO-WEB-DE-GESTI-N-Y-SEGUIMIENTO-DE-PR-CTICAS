@@ -27,9 +27,9 @@ export const guardarBorrador = async (req, res) =>
 export const publicar = async (req, res) =>
   responderOk(res, await evaluationService.publicar(req.params.id, req.body, req.auth, construirContexto(req)));
 
-/** Reabre una evaluación. */
-export const reabrir = async (req, res) =>
-  responderOk(res, await evaluationService.reabrir(req.params.id, req.body, req.auth, construirContexto(req)));
+/** El evaluador corrige su propia nota publicada. */
+export const corregir = async (req, res) =>
+  responderOk(res, await evaluationService.corregir(req.params.id, req.body, req.auth, construirContexto(req)));
 
 /** Finaliza la práctica. */
 export const finalizarPractica = async (req, res) =>

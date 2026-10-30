@@ -76,4 +76,15 @@ describe("cargarEntorno", () => {
   it("rechaza valores numéricos inválidos", () => {
     assert.throws(() => cargarEntorno({ NODE_ENV: "test", PORT: "abc" }), /PORT/);
   });
+
+  it("eventos: por defecto 'direct'; con 'outbox' exige URL y un secreto de al menos 32 caracteres", () => {
+    const base = { NODE_ENV: "test" };
+    const e = cargarEntorno(base);
+    assert.equal(e.EVENTS_MODE, "direct");
+    assert.equal(e.OUTBOX_MAX_ATTEMPTS, 8);
+    assert.throws(() => cargarEntorno({ ...base, EVENTS_MODE: "outbox" }), /NOTIFICATIONS_SERVICE_URL es obligatoria[\s\S]*EVENTS_SHARED_SECRET es obligatoria/);
+    assert.throws(() => cargarEntorno({ ...base, EVENTS_MODE: "outbox", NOTIFICATIONS_SERVICE_URL: "https://n.test", EVENTS_SHARED_SECRET: "corto" }), /al menos 32/);
+    assert.equal(cargarEntorno({ ...base, EVENTS_MODE: "outbox", NOTIFICATIONS_SERVICE_URL: "https://n.test", EVENTS_SHARED_SECRET: "x".repeat(32) }).EVENTS_MODE, "outbox");
+    assert.throws(() => cargarEntorno({ ...base, EVENTS_MODE: "otro" }));
+  });
 });

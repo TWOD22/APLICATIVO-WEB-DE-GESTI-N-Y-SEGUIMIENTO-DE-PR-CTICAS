@@ -170,6 +170,30 @@ export function montarDashboardEvaluador(ui) {
 
   cargarPeriodos();
   cargar();
+  if (role === "docente") cargarTareasDelDocente();
+
+  /** «¿Qué hay que hacer ahora?» del docente: bitácoras por calificar, borradores y lo que falta configurar en su nivel. */
+  async function cargarTareasDelDocente() {
+    const lugar = pagina.querySelector(".stats-grid");
+    if (!lugar) return;
+    lugar.insertAdjacentHTML("afterend", `<section class="panel action-board" id="ev-tareas" hidden></section>`);
+    const caja = pagina.querySelector("#ev-tareas");
+    try {
+      const { data } = await api.get("/dashboard/actions");
+      const destino = (t) => {
+        if (t.destino?.pantalla === "mi_grupo") return `${pathFor(role, "grupo")}${t.destino.filtro?.pestana ? `?pestana=${encodeURIComponent(t.destino.filtro.pestana)}` : ""}`;
+        return "#ev-tabla"; // evaluaciones: la tabla de estudiantes de esta misma pantalla
+      };
+      const conCasos = data.tarjetas.filter((t) => t.total > 0);
+      const acciones = conCasos.filter((t) => t.tipo !== "info");
+      const informativas = conCasos.filter((t) => t.tipo === "info");
+      if (!conCasos.length) return;
+      caja.hidden = false;
+      caja.innerHTML = `<header class="panel-heading"><div><h3>¿Qué hay que hacer ahora?</h3><p>${data.pendientes ? `${data.pendientes} por atender` : "Todo al día"}</p></div></header>
+        ${acciones.length ? `<div class="action-grid">${acciones.map((t) => `<article class="action-card blue"><span class="action-count">${t.total}</span><h4>${escapar(t.titulo)}</h4><span class="action-meta"><a class="action-go" href="${destino(t)}">Atender →</a></span></article>`).join("")}</div>` : ""}
+        ${informativas.length ? `<div class="action-info"><span>Para tener en cuenta</span>${informativas.map((t) => `<a href="${destino(t)}"><b>${t.total}</b> ${escapar(t.titulo)} →</a>`).join("")}</div>` : ""}`;
+    } catch { /* si no cargan las tareas, el resto de la pantalla sigue funcionando */ }
+  }
 }
 
 // ═════════════════════════ Evaluación ═════════════════════════
@@ -267,8 +291,9 @@ export function montarEvaluacion(ui) {
     const publicada = ev.estado === "PUBLICADA";
     const rotuloNota = role === "asesor" ? "Nota global de sitio" : "Nota global académica";
 
-    const aviso = editable && ev.reabierta_en
-      ? `<div class="notice"><strong>Dirección reabrió tu evaluación.</strong><br>${escapar(ev.motivo_reapertura || "Revisa la nota y vuelve a publicarla.")}</div>`
+    const corregible = Boolean(ev.corregible);
+    const aviso = ev.corregida_en
+      ? `<div class="notice"><strong>Corregiste esta nota el ${escapar(fechaHora(ev.corregida_en))}.</strong>${ev.motivo_correccion ? `<br>Motivo: ${escapar(ev.motivo_correccion)}` : ""}</div>`
       : "";
     const bloqueo = !editable && !publicada
       ? `<div class="notice">Esta evaluación no se puede modificar en este momento${a.estado === "FINALIZADA" ? ": la práctica ya fue finalizada" : ""}.</div>`
@@ -295,10 +320,11 @@ export function montarEvaluacion(ui) {
           <header><span class="eyebrow">Tu evaluación</span><h3>${role === "asesor" ? "Valoración del sitio" : "Valoración académica"}</h3><p>Registra una única nota global según el desempeño ${role === "asesor" ? "observado en la institución" : "académico del estudiante"}. Es independiente de la del ${role === "asesor" ? "docente supervisor" : "asesor de sitio"}.</p></header>
           <label class="field single-site-grade"><span>${rotuloNota}</span><input type="number" id="evl-nota" min="0" max="5" step=".01" inputmode="decimal" value="${ev.nota != null ? nota2(ev.nota) : ""}" ${editable ? "" : "readonly"} required /><small data-evl-nota-ayuda>Ingresa una calificación entre 0.00 y 5.00.</small></label>
           <label class="field rubric-comment"><span>Retroalimentación para el estudiante</span><textarea id="evl-retro" maxlength="3000" ${editable ? "" : "readonly"} placeholder="${editable ? "Destaca fortalezas y escribe recomendaciones concretas..." : ""}">${escapar(ev.retroalimentacion || "")}</textarea></label>
-          <p class="autosave-note">${icon("clock")} <span data-evl-guardado>${publicada ? `Publicada el ${escapar(fechaHora(ev.publicada_en))}. Para modificarla, Dirección debe reabrirla.` : editable ? "Tus cambios se guardan automáticamente como borrador." : ""}</span></p>
+          <p class="autosave-note">${icon("clock")} <span data-evl-guardado>${publicada ? `Publicada el ${escapar(fechaHora(ev.publicada_en))}.${corregible ? " Si te equivocaste, puedes corregirla indicando el motivo." : " Ya no puede modificarse."}` : editable ? "Tus cambios se guardan automáticamente como borrador." : ""}</span></p>
           <p class="form-error" role="alert" data-evl-error hidden></p>
           <div class="rubric-actions">
             ${editable ? `<button class="btn btn-secondary btn-block" type="button" data-evl-borrador>Guardar borrador</button><button class="btn btn-primary btn-block" type="button" data-evl-publicar>Guardar evaluación</button>` : ""}
+            ${corregible ? `<button class="btn btn-secondary btn-block" type="button" data-evl-corregir>Corregir mi nota</button>` : ""}
             <button class="btn btn-ghost btn-block" type="button" data-export-logbook="${escapar(b.id)}">${icon("file")} Exportar a PDF</button>
           </div>
         </aside>
@@ -412,7 +438,7 @@ export function montarEvaluacion(ui) {
       campoNota().focus();
       return;
     }
-    const modal = openModal("Publicar evaluación", `<form data-evl-form-publicar><p>Vas a publicar tu nota de <strong>${nota2(valor)}</strong> para ${escapar(estado.datos.asignacion.estudiante.nombre_completo)}.</p><div class="notice">Una vez publicada, el estudiante la verá y no podrás modificarla: solo la Dirección del programa puede reabrirla.</div><p class="form-error" role="alert" data-evl-error-modal hidden></p><div class="form-actions"><button class="btn btn-secondary" type="button" data-close>Volver y revisar</button><button class="btn btn-primary" type="submit">Publicar evaluación</button></div></form>`);
+    const modal = openModal("Publicar evaluación", `<form data-evl-form-publicar><p>Vas a publicar tu nota de <strong>${nota2(valor)}</strong> para ${escapar(estado.datos.asignacion.estudiante.nombre_completo)}.</p><div class="notice">Una vez publicada, el estudiante la verá. Mientras la práctica siga en evaluación podrás corregirla tú mismo indicando el motivo; el cambio queda registrado.</div><p class="form-error" role="alert" data-evl-error-modal hidden></p><div class="form-actions"><button class="btn btn-secondary" type="button" data-close>Volver y revisar</button><button class="btn btn-primary" type="submit">Publicar evaluación</button></div></form>`);
     modal.querySelector("form").addEventListener("submit", async (e) => {
       e.preventDefault();
       const boton = modal.querySelector("[type=submit]");
@@ -431,6 +457,40 @@ export function montarEvaluacion(ui) {
     });
   }
 
+    /** Corrección de la propia nota ya publicada: nota nueva, retroalimentación opcional y motivo obligatorio. */
+  function abrirCorreccion() {
+    const ev = estado.ev;
+    const modal = openModal("Corregir mi nota", `<form data-evl-form-corregir novalidate>
+      <p class="muted">La nota anterior (${nota2(ev.nota)}) queda en el historial y el estudiante recibe un aviso de la corrección.</p>
+      <div class="form-grid"><label class="field"><span>Nota nueva (0.00 a 5.00)</span><input name="nota" type="number" min="0" max="5" step=".01" inputmode="decimal" value="${nota2(ev.nota)}" required /></label></div>
+      <label class="field"><span>Retroalimentación (opcional)</span><textarea name="retro" rows="3" maxlength="3000">${escapar(ev.retroalimentacion || "")}</textarea></label>
+      <label class="field"><span>Motivo de la corrección (obligatorio)</span><textarea name="motivo" rows="3" maxlength="500" required placeholder="Explica por qué cambias la nota…"></textarea></label>
+      <p class="form-error" role="alert" data-evl-error-modal hidden></p>
+      <div class="form-actions"><button class="btn btn-secondary" type="button" data-close>Cancelar</button><button class="btn btn-primary" type="submit">Guardar corrección</button></div></form>`);
+    modal.querySelector("form").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const f = e.currentTarget;
+      const aviso = modal.querySelector("[data-evl-error-modal]");
+      const valor = Number(String(f.nota.value).trim().replace(",", "."));
+      const motivo = f.motivo.value.trim();
+      const fallar = (t) => { aviso.textContent = t; aviso.hidden = false; };
+      aviso.hidden = true;
+      if (!Number.isFinite(valor) || valor < 0 || valor > 5 || Math.abs(valor * 100 - Math.round(valor * 100)) > 1e-9) return fallar("La nota debe estar entre 0.00 y 5.00, con máximo dos decimales.");
+      if (motivo.length < 5) return fallar("Describe el motivo (mínimo 5 caracteres).");
+      const boton = f.querySelector("[type=submit]");
+      boton.disabled = true;
+      try {
+        await api.post(`/evaluations/${ev.id}/correct`, { nota: valor, retroalimentacion: f.retro.value.trim() || null, motivo });
+        modal.remove();
+        showToast("Nota corregida");
+        await cargar();
+      } catch (fallo) {
+        fallar(mensajeDeError(fallo));
+        boton.disabled = false;
+      }
+    });
+  }
+
   // ───────────── Eventos ─────────────
     // Entradas de nota y retroalimentación: agendan el autoguardado.
   pagina.addEventListener("input", (e) => {
@@ -441,6 +501,7 @@ export function montarEvaluacion(ui) {
   });
   pagina.addEventListener("click", (e) => {
     if (e.target.closest("[data-evl-retry]")) { cargar(); return; }
+    if (e.target.closest("[data-evl-corregir]")) { abrirCorreccion(); return; }
     const ver = e.target.closest("[data-evl-ver]");
     if (ver) { verEvidencia(ver.dataset.evlVer); return; }
     if (e.target.closest("[data-evl-borrador]")) {

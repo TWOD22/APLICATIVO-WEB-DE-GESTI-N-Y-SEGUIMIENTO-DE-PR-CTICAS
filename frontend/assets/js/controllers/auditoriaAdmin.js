@@ -20,14 +20,6 @@ const DOCUMENTO = {
   POR_CORREGIR: { texto: "Rechazado", tono: "danger", color: "red" },
   SIN_CARGAR: { texto: "Sin cargar", tono: "neutral", color: "orange" },
 };
-// Motivos predefinidos para rechazar un documento.
-const MOTIVOS = [
-  "La institución no cuenta con convenio vigente",
-  "El documento está vencido",
-  "El archivo no es legible",
-  "Faltan firmas o sellos requeridos",
-  "Otro motivo",
-];
 
 // Fecha corta en español (vacío si no hay fecha válida).
 const fecha = (valor) => {
@@ -40,7 +32,7 @@ const fecha = (valor) => {
  * @param {object} ui Utilidades de interfaz compartidas.
  */
 export function montarAuditoria(ui) {
-  const { badge, escapar, icon, initials, openModal, showToast } = ui;
+  const { badge, escapar, icon, initials, showToast } = ui;
   const lista = document.querySelector("#audit-student-list");
   const detalle = document.querySelector("#audit-detail");
   if (!lista || !detalle) return;
@@ -48,6 +40,13 @@ export function montarAuditoria(ui) {
   const estado = { periodos: [], periodoId: "", q: "", nivel: "", expediente: "", pagina: 1, filas: [], seleccion: new URLSearchParams(window.location.search).get("asignacion"), turno: 0, turnoDetalle: 0 };
   // Si se llega desde el perfil de un estudiante (?asignacion=…), se abre ese expediente aunque no esté en la primera página.
   let preseleccion = Boolean(estado.seleccion);
+  // Desde el panel: ?estado=COMPLETO (o EN_REVISION, POR_CORREGIR, INCOMPLETO) abre la lista ya filtrada.
+  const estadoInicial = new URLSearchParams(window.location.search).get("estado");
+  if (Object.hasOwn(EXPEDIENTE, estadoInicial || "")) {
+    estado.expediente = estadoInicial;
+    const select = document.querySelector("#audit-filter");
+    if (select) select.value = estadoInicial;
+  }
 
     // Une el mensaje del error con los detalles que devuelve el servidor.
   const mensajeDeError = (error) => {
@@ -97,7 +96,7 @@ export function montarAuditoria(ui) {
     const items = filas.map((f) => {
       const [texto, tono] = EXPEDIENTE[f.expediente_estado] || [f.expediente_estado, "neutral"];
       const d = f.documentos;
-      return `<button class="audit-student ${f.asignacion_id === estado.seleccion ? "active" : ""}" type="button" data-au-expediente="${escapar(f.asignacion_id)}"><span class="avatar">${escapar(initials(f.estudiante.nombre_completo))}</span><span class="audit-student-copy"><strong>${escapar(f.estudiante.nombre_completo)}</strong><small>${escapar(f.nivel.nombre)}</small><small>${escapar(f.institucion.nombre)}</small><span class="progress"><span style="width:${d.total ? Math.round((d.aprobados / d.total) * 100) : 0}%"></span></span></span><span class="audit-student-status">${badge(texto, tono)}<small>${escapar(f.periodo.codigo)}</small><small>${d.aprobados}/${d.total} válidos</small></span></button>`;
+      return `<button class="audit-student ${f.asignacion_id === estado.seleccion ? "active" : ""}" type="button" data-au-expediente="${escapar(f.asignacion_id)}"><span class="avatar">${escapar(initials(f.estudiante.nombre_completo))}</span><span class="audit-student-copy"><strong>${escapar(f.estudiante.nombre_completo)}</strong><small>${escapar(f.nivel.nombre)}</small><small>${escapar(f.institucion?.nombre ?? "Sin institución asignada")}</small><span class="progress"><span style="width:${d.total ? Math.round((d.aprobados / d.total) * 100) : 0}%"></span></span></span><span class="audit-student-status">${badge(texto, tono)}<small>${escapar(f.periodo.codigo)}</small><small>${d.aprobados}/${d.total} válidos</small></span></button>`;
     }).join("");
     const paginacion = meta.total_pages > 1
       ? `<nav class="pagination" style="justify-content:center;gap:8px;padding:12px"><button type="button" data-au-pagina="${meta.page - 1}" ${meta.page <= 1 ? "disabled" : ""}>‹</button><span>${meta.page} / ${meta.total_pages}</span><button type="button" data-au-pagina="${meta.page + 1}" ${meta.page >= meta.total_pages ? "disabled" : ""}>›</button></nav>`
@@ -132,9 +131,6 @@ export function montarAuditoria(ui) {
     const id = escapar(doc.documento_id || "");
     let acciones = "";
     if (doc.documento_id) acciones += `<button class="btn btn-ghost" type="button" data-au-ver="${id}">Ver PDF</button>`;
-    if (doc.estado === "EN_REVISION") acciones += `<button class="btn btn-secondary" type="button" data-au-aprobar="${id}">Aprobar</button><button class="btn btn-danger" type="button" data-au-rechazar="${id}" data-nombre="${escapar(doc.tipo.nombre)}">Rechazar</button>`;
-    else if (doc.estado === "APROBADO") acciones += `<div class="document-more"><button class="more-button" type="button" data-au-menu aria-label="Más acciones">⋮</button><div class="document-more-menu" hidden><button type="button" data-au-pendiente="${id}">Cambiar a pendiente</button><button type="button" data-au-rechazar="${id}" data-nombre="${escapar(doc.tipo.nombre)}">Rechazar con motivo</button></div></div>`;
-    else if (doc.estado === "POR_CORREGIR") acciones += `<button class="btn btn-secondary" type="button" data-au-pendiente="${id}">Devolver a revisión</button>`;
     return `<section class="audit-document"><span class="doc-icon ${e.color}">${icon("file")}</span><div class="audit-document-copy"><div><h3>${escapar(doc.tipo.nombre)}${doc.obligatorio ? "" : " <small>(opcional)</small>"}</h3>${badge(e.texto, e.tono)}</div><p>${texto}</p></div><div class="audit-document-actions">${acciones}</div></section>`;
   }
 
@@ -144,45 +140,14 @@ export function montarAuditoria(ui) {
     const hayRechazados = resumen.por_corregir > 0;
     const faltan = documentos.some((d) => d.obligatorio && !d.documento_id);
     const [textoGlobal, tonoGlobal] = completo ? ["Aprobado", "success"] : hayRechazados ? ["Por corregir", "danger"] : faltan ? ["Incompleto", "neutral"] : ["Pendiente", "warning"];
-    let textoBoton = "Aprobar expediente completo";
-    if (completo) textoBoton = "Expediente totalmente aprobado ✓";
-    else if (hayRechazados) textoBoton = "Hay documentos rechazados";
-    else if (faltan) textoBoton = "Faltan documentos por cargar";
-    const deshabilitado = completo || hayRechazados || faltan;
-    detalle.innerHTML = `<header class="panel-heading audit-detail-heading"><div class="person"><span class="avatar">${escapar(initials(asignacion.estudiante.nombre_completo))}</span><span><h3>${escapar(asignacion.estudiante.nombre_completo)}</h3><p>${escapar(asignacion.nivel.nombre)} · ${escapar(asignacion.institucion.nombre)}</p></span></div>${badge(textoGlobal, tonoGlobal)}</header>
-      <div class="audit-notice"><span class="doc-icon blue">${icon("shield")}</span><div><strong>Validación documental</strong><p>Verifica vigencia, legibilidad, firmas y convenio activo con la institución antes de aprobar.</p></div></div>
+    const enSolicitud = ["ENVIADA", "DEVUELTA", "DOCUMENTOS_APROBADOS", "PLAZA_SELECCIONADA"].includes(asignacion.estado);
+    detalle.innerHTML = `<header class="panel-heading audit-detail-heading"><div class="person"><span class="avatar">${escapar(initials(asignacion.estudiante.nombre_completo))}</span><span><h3>${escapar(asignacion.estudiante.nombre_completo)}</h3><p>${escapar(asignacion.nivel.nombre)} · ${escapar(asignacion.institucion?.nombre ?? "Sin institución asignada")}</p></span></div>${badge(textoGlobal, tonoGlobal)}</header>
+      <div class="audit-notice"><span class="doc-icon blue">${icon("shield")}</span><div><strong>Consulta del expediente</strong><p>Aquí se consulta el estado de cada documento legal. La revisión (aprobar o devolver) se hace en Solicitudes.</p></div></div>
       <div class="audit-documents">${documentos.map(filaDocumento).join("")}</div>
-      <footer class="audit-footer"><div><strong>Estado del expediente</strong><small>${resumen.aprobados_obligatorios} de ${resumen.total_obligatorios} documentos obligatorios aprobados</small></div><button class="btn ${completo ? "btn-secondary" : "btn-primary"}" type="button" data-au-aprobar-todo ${deshabilitado ? "disabled" : ""}>${textoBoton}</button></footer>`;
+      <footer class="audit-footer"><div><strong>Estado del expediente</strong><small>${resumen.aprobados_obligatorios} de ${resumen.total_obligatorios} documentos obligatorios aprobados</small></div>${enSolicitud && !completo ? `<a class="btn btn-primary" href="/frontend/pages/director/solicitudes.html?id=${encodeURIComponent(asignacion.id)}">Revisar en Solicitudes</a>` : `<a class="btn btn-secondary" href="/frontend/pages/director/practica.html?id=${encodeURIComponent(asignacion.id)}">Abrir la práctica</a>`}</footer>`;
   }
 
   // ---------- Acciones ----------
-    /** Envía la decisión del Director sobre un documento y refresca la pantalla. */
-  async function revisar(documentoId, cuerpo, mensajeOk) {
-    try {
-      const { data } = await api.post(`/legal-documents/${documentoId}/review`, cuerpo);
-      showToast(mensajeOk + (data.bitacora === "HABILITADA" ? " · Bitácora habilitada para el estudiante" : ""));
-    } catch (error) {
-      showToast(mensajeDeError(error));
-    }
-    await refrescarTodo();
-  }
-  const refrescarTodo = async () => { await cargarLista(); };
-
-    /** Ventana para rechazar un documento: pide motivo y observación (mínimo 5 caracteres). */
-  function abrirRechazo(documentoId, nombre) {
-    const modal = openModal(`Rechazar ${escapar(nombre)}`, `<form id="reject-document-form" novalidate><p class="muted">El rechazo requiere una justificación. El estudiante la verá en su pantalla y recibirá una notificación en el aplicativo para cargar una corrección.</p><label class="field"><span>Motivo del rechazo</span><select name="motivo">${MOTIVOS.map((m) => `<option>${escapar(m)}</option>`).join("")}</select></label><label class="field"><span>Observación obligatoria</span><textarea name="observacion" rows="4" required placeholder="Indica qué debe corregir el estudiante."></textarea></label><p class="form-error" role="alert" data-form-error hidden></p><div class="form-actions"><button class="btn btn-secondary" type="button" data-close>Cancelar</button><button class="btn btn-danger" type="submit">Confirmar rechazo</button></div></form>`);
-    const formulario = modal.querySelector("form");
-    formulario.addEventListener("submit", async (e) => {
-      e.preventDefault();
-      const error = formulario.querySelector("[data-form-error]");
-      const observacion = formulario.observacion.value.trim();
-      if (observacion.length < 5) { error.textContent = "Describe el motivo (mínimo 5 caracteres)."; error.hidden = false; return; }
-      formulario.querySelector("[type=submit]").disabled = true;
-      modal.remove();
-      await revisar(documentoId, { decision: "RECHAZAR", motivo: formulario.motivo.value, observacion }, "Documento rechazado. Se notificará al estudiante");
-    });
-  }
-
     /** Abre el PDF en una pestaña nueva usando una URL firmada temporal. */
   async function verPdf(documentoId) {
     const ventana = window.open("", "_blank");
@@ -193,18 +158,6 @@ export function montarAuditoria(ui) {
       ventana?.close();
       showToast(mensajeDeError(error));
     }
-  }
-
-    /** Aprueba todos los documentos en revisión del expediente. */
-  async function aprobarTodo(boton) {
-    boton.disabled = true;
-    try {
-      const { data } = await api.post(`/practice-assignments/${estado.seleccion}/legal-documents/approve-all`);
-      showToast(data.aprobados ? `Expediente aprobado (${data.aprobados} documento${data.aprobados === 1 ? "" : "s"})${data.bitacora === "HABILITADA" ? " · Bitácora habilitada" : ""}` : "No había documentos pendientes de aprobar");
-    } catch (error) {
-      showToast(mensajeDeError(error));
-    }
-    await refrescarTodo();
   }
 
   // ---------- Filtros ----------
@@ -240,23 +193,8 @@ export function montarAuditoria(ui) {
     if (pagina && !pagina.disabled) { estado.pagina = Number(pagina.dataset.auPagina); cargarLista({ conservarSeleccion: false }); return; }
     if (e.target.closest("[data-au-retry-lista]")) { cargarLista(); return; }
     if (e.target.closest("[data-au-retry-detalle]")) { cargarDetalle(); return; }
-    const menu = e.target.closest("[data-au-menu]");
-    if (menu) {
-      const caja = menu.nextElementSibling;
-      document.querySelectorAll(".document-more-menu").forEach((m) => { if (m !== caja) m.hidden = true; });
-      caja.hidden = !caja.hidden;
-      return;
-    }
     const ver = e.target.closest("[data-au-ver]");
     if (ver) { verPdf(ver.dataset.auVer); return; }
-    const aprobar = e.target.closest("[data-au-aprobar]");
-    if (aprobar) { aprobar.disabled = true; revisar(aprobar.dataset.auAprobar, { decision: "APROBAR" }, "Documento aprobado correctamente"); return; }
-    const pendiente = e.target.closest("[data-au-pendiente]");
-    if (pendiente) { revisar(pendiente.dataset.auPendiente, { decision: "PENDIENTE" }, "Documento devuelto a revisión"); return; }
-    const rechazar = e.target.closest("[data-au-rechazar]");
-    if (rechazar) { abrirRechazo(rechazar.dataset.auRechazar, rechazar.dataset.nombre || "documento"); return; }
-    const todo = e.target.closest("[data-au-aprobar-todo]");
-    if (todo && !todo.disabled) aprobarTodo(todo);
   });
 
   // ---------- Inicio ----------

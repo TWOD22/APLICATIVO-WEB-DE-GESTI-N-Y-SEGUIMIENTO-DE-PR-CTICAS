@@ -26,12 +26,6 @@ export async function cargarPerfil(rol = rolActivoGuardado()) {
   return data;
 }
 
-/** Fija el rol activo (se envía en X-Active-Role) comprobándolo con el servidor. */
-export async function elegirRol(rol) {
-  await api.post("/me/active-role", { rol }); // 403 ROLE_NOT_ASSIGNED si no lo tiene
-  guardarRolActivo(rol);
-}
-
 /** Cierra la sesión (Firebase y rol guardado) y vuelve al login. */
 export async function cerrarSesion() {
   guardarRolActivo(null);

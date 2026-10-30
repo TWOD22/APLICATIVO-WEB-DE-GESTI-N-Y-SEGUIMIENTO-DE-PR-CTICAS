@@ -1,0 +1,164 @@
+/* "Mi práctica" del estudiante (solicitud, documentos y plaza). Usa la paleta de global.css. */
+
+.practice-empty { padding: 32px; text-align: center; }
+.practice-panel { margin-bottom: 20px; }
+.practice-main { align-items: start; }
+
+/* Línea de tiempo de 6 pasos */
+.practice-steps { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); margin: 0; padding: 0; list-style: none; }
+.practice-steps li { position: relative; display: flex; flex-direction: column; align-items: center; gap: 9px; text-align: center; }
+.practice-steps li::before { position: absolute; top: 15px; right: 50%; left: -50%; height: 2px; background: var(--line); content: ""; }
+.practice-steps li:first-child::before { display: none; }
+.practice-steps li.done::before, .practice-steps li.current::before { background: var(--green); }
+.step-dot { position: relative; z-index: 1; width: 32px; height: 32px; display: grid; place-items: center; border: 2px solid var(--line); border-radius: 50%; color: var(--muted); background: #fff; font-size: 11px; font-weight: 800; }
+.step-dot .icon { width: 16px; height: 16px; }
+.practice-steps li.done .step-dot { border-color: var(--green); color: #fff; background: var(--green); }
+.practice-steps li.current .step-dot { border-color: var(--blue); color: #fff; background: var(--blue); box-shadow: 0 0 0 5px rgba(33, 139, 224, .15); }
+.step-text strong, .step-text small { display: block; }
+.step-text strong { color: var(--ink); font-size: 11px; }
+.step-text small { margin-top: 2px; color: var(--muted); font-size: 9px; }
+.practice-steps li.todo .step-text strong { color: var(--muted); }
+
+/* Trayectoria */
+.trajectory { display: grid; gap: 10px; margin: 14px 0 6px; padding: 0; list-style: none; }
+.trajectory li { display: grid; grid-template-columns: 1fr auto; column-gap: 10px; align-items: center; padding: 11px 12px; border: 1px solid var(--line); border-radius: 10px; background: #fff; }
+.trajectory li small { grid-column: 1; color: var(--muted); font-size: 9px; }
+.trajectory li .badge { grid-column: 2; grid-row: 1 / span 2; }
+.trajectory li strong { font-size: 11px; }
+.trajectory li.done { background: #f4fcf9; }
+.trajectory li.todo { opacity: .75; }
+.trajectory li.next { border-color: #f4c56b; background: var(--orange-soft); opacity: 1; }
+.practice-trajectory .btn-link { margin-top: 8px; padding-left: 0; }
+
+/* Encabezados de bloque y contadores */
+.practice-block-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+.practice-block-head h3 { margin: 4px 0 0; }
+.practice-count { color: var(--muted); font-size: 10px; font-weight: 700; }
+.practice-send { align-items: center; justify-content: space-between; }
+.practice-facts { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: 16px 0 4px; }
+.practice-facts div { padding: 12px; border: 1px solid var(--line); border-radius: 10px; background: #f8fafc; }
+.practice-facts span, .practice-facts strong { display: block; }
+.practice-facts span { color: var(--muted); font-size: 9px; }
+.practice-facts strong { margin-top: 4px; font-size: 20px; }
+.notice.notice-warning { align-items: center; color: #8a5300; background: var(--orange-soft); }
+.notice .icon { width: 16px; height: 16px; }
+.practice-confirm p { color: #526b83; font-size: 12px; line-height: 1.7; }
+
+/* Documentos requeridos */
+.req-doc-list { display: grid; gap: 10px; margin-top: 16px; }
+.req-doc { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 13px 14px; border: 1px solid var(--line); border-radius: 10px; background: #fff; }
+.req-doc.req-danger { border-color: #efb7bc; background: #fffafb; }
+.req-doc.req-success { background: #f4fcf9; }
+.req-doc-info { min-width: 0; }
+.req-doc-info strong { font-size: 12px; }
+.req-doc-info p { margin: 4px 0 0; color: var(--muted); font-size: 10px; line-height: 1.5; overflow-wrap: anywhere; }
+.req-doc.req-danger .req-doc-info p { color: #b3333d; }
+.req-doc-actions { display: flex; flex: none; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; }
+.req-doc-actions .btn .icon { width: 14px; height: 14px; }
+
+/* Elección de plaza */
+.site-search { margin: 14px 0 12px; max-width: none; }
+.site-list { display: grid; gap: 9px; max-height: 420px; overflow-y: auto; padding: 2px; }
+.site-card { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px; background: #fff; cursor: pointer; transition: .15s; }
+.site-card:hover { border-color: #9cc9ee; }
+.site-card.selected { border-color: var(--blue); background: var(--blue-soft); box-shadow: 0 0 0 3px rgba(33, 139, 224, .12); }
+.site-card input { width: 16px; height: 16px; flex: none; accent-color: var(--blue); }
+.site-icon { width: 36px; height: 36px; display: grid; flex: none; place-items: center; border-radius: 9px; color: var(--blue-dark); background: var(--blue-soft); }
+.site-info { flex: 1; min-width: 0; }
+.site-info strong, .site-info small { display: block; }
+.site-info strong { font-size: 12px; }
+.site-info small { margin-top: 3px; color: var(--muted); font-size: 10px; }
+.site-chosen { display: flex; align-items: center; gap: 12px; margin: 14px 0; padding: 14px; border: 1px solid #9cc9ee; border-radius: 10px; background: var(--blue-soft); }
+.site-chosen strong, .site-chosen small { display: block; }
+.site-chosen small { margin-top: 3px; color: var(--muted); font-size: 10px; }
+
+/* Pantallas angostas: la línea de tiempo pasa a vertical */
+@media (max-width: 860px) {
+  .practice-steps { grid-auto-flow: row; grid-template-columns: 1fr; gap: 14px; }
+  .practice-steps li { flex-direction: row; text-align: left; }
+  .practice-steps li::before { top: auto; right: auto; bottom: 50%; left: 15px; width: 2px; height: calc(100% + 14px); }
+  .req-doc { flex-direction: column; align-items: stretch; }
+  .req-doc-actions { justify-content: flex-start; }
+  .practice-facts { grid-template-columns: 1fr; }
+}
+.practice-hint { display: block; margin-top: 10px; font-size: 10px; }
+
+/* ───────── Vista del Director: solicitudes y asistente de asignación ───────── */
+.sd-back { margin-bottom: 10px; padding-left: 0; }
+.sd-head-actions { display: flex; align-items: center; gap: 10px; }
+.practice-steps.steps-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.step-btn { display: flex; flex-direction: column; align-items: center; gap: 9px; padding: 0; border: 0; color: inherit; background: transparent; text-align: center; }
+.step-btn:disabled { cursor: not-allowed; opacity: .55; }
+.step-btn:not(:disabled):hover .step-dot { border-color: var(--blue); }
+.sd-footer { align-items: center; }
+.sd-spacer { flex: 1; }
+.sd-facts { margin-bottom: 12px; }
+.sd-double { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; align-items: start; }
+.sd-screen h3 { margin: 4px 0 12px; }
+.sd-dl { display: grid; gap: 10px; margin: 0 0 14px; }
+.sd-dl div { padding: 11px 12px; border: 1px solid var(--line); border-radius: 10px; background: #f8fafc; }
+.sd-dl dt { color: var(--muted); font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; }
+.sd-dl dd { margin: 4px 0 0; font-size: 12px; font-weight: 700; }
+.sd-missing { color: #b3333d; }
+.sd-dates { grid-template-columns: repeat(2, minmax(0, 1fr)); margin-top: 10px; }
+.sd-load { display: flex; flex-direction: column; align-items: center; min-width: 74px; padding: 6px 10px; border-radius: 9px; color: #8a5300; background: var(--orange-soft); text-align: center; }
+.sd-load.free { color: #0a7a58; background: var(--green-soft); }
+.sd-load strong { font-size: 18px; line-height: 1; }
+.sd-load small { margin-top: 3px; font-size: 9px; }
+.dn-select { min-width: 240px; padding: 9px 10px; border: 1px solid var(--line); border-radius: 9px; background: #fff; font-size: 12px; }
+.assignment-table td small { display: block; margin-top: 3px; color: var(--muted); font-size: 9px; }
+
+@media (max-width: 860px) {
+  .practice-steps.steps-4 { grid-template-columns: 1fr; }
+  .step-btn { flex-direction: row; text-align: left; }
+  .sd-double { grid-template-columns: 1fr; }
+  .sd-dates { grid-template-columns: 1fr; }
+  .sd-head-actions { flex-wrap: wrap; }
+}
+
+/* Docentes por nivel: la tabla no debe recortarse en pantallas medianas */
+.table-wrap { overflow-x: auto; }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.dn-select { min-width: 200px; max-width: 100%; }
+
+/* v2.1: documentos y plaza en la misma pantalla */
+.practice-stack { display: grid; gap: 16px; min-width: 0; align-content: start; }
+.practice-site .site-chosen { margin-top: 12px; }
+.practice-site .form-actions { margin-top: 4px; }
+
+/* ---- Director: Vista general (tarjetas de acción a todo el ancho) y Seguimiento ---- */
+a.stat-card.stat-link { color: inherit; text-decoration: none; transition: border-color .15s, box-shadow .15s, transform .15s; }
+a.stat-card.stat-link:hover { border-color: #a9cce8; box-shadow: 0 8px 24px rgba(11, 44, 72, .1); transform: translateY(-1px); }
+.action-board { margin-bottom: 20px; }
+.action-board .panel-heading > .muted { font-size: 9px; }
+.action-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); gap: 14px; padding: 18px 20px 20px; }
+.action-card { display: grid; grid-template-columns: 38px 1fr; grid-template-areas: "icon count" "title title" "cases cases" "meta meta"; align-content: start; align-items: center; gap: 8px 12px; padding: 16px; border: 1px solid var(--line); border-left: 4px solid var(--blue); border-radius: 12px; background: #fff; color: var(--ink); transition: box-shadow .15s; }
+.action-card:hover { box-shadow: 0 8px 24px rgba(11, 44, 72, .1); }
+.action-card .alert-icon { grid-area: icon; }
+.action-card .action-count { grid-area: count; justify-self: end; font-size: 30px; font-weight: 800; line-height: 1; }
+.action-card h4 { grid-area: title; margin: 0; font-size: 11px; line-height: 1.4; }
+.action-cases { grid-area: cases; display: grid; gap: 2px; margin: 0; padding: 0; list-style: none; }
+.action-cases a { display: flex; flex-direction: column; gap: 1px; padding: 7px 9px; border-radius: 8px; background: #f7f9fb; color: var(--ink); text-decoration: none; }
+.action-cases a:hover { background: var(--blue-soft); }
+.action-cases strong { font-size: 10px; }
+.action-cases small { color: var(--muted); font-size: 9px; }
+.action-others { border-top: 1px solid var(--line); }
+.action-others > summary { padding: 12px 20px; cursor: pointer; color: var(--blue-dark); font-size: 11px; font-weight: 700; list-style: none; }
+.action-others > summary::-webkit-details-marker { display: none; }
+.action-others > summary::before { content: "▸ "; }
+.action-others[open] > summary::before { content: "▾ "; }
+.action-others > .action-grid { padding-top: 4px; }
+.action-more { padding: 2px 9px; color: var(--muted); font-size: 9px; }
+.action-card .action-meta { grid-area: meta; display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 2px; }
+.action-go { color: var(--blue-dark); font-size: 10px; font-weight: 700; text-decoration: none; }
+.action-go:hover { text-decoration: underline; }
+.action-empty { margin: 0; padding: 22px 20px; text-align: center; }
+.action-info { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; padding: 12px 20px; border-top: 1px solid var(--line); background: #f7f9fb; }
+.action-info > span { color: var(--muted); font-size: 9px; font-weight: 800; text-transform: uppercase; letter-spacing: .08em; }
+.action-info a { color: var(--ink); font-size: 10px; text-decoration: none; }
+.action-info a:hover { color: var(--blue-dark); text-decoration: underline; }
+@media (max-width: 600px) { .action-grid { grid-template-columns: 1fr; } .action-card .action-count { font-size: 26px; } }
+
+/* Acciones administrativas sobre una práctica (cambiar institución/asesor, cancelar). */
+.practice-admin-actions { display: grid; gap: 8px; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--border, #e3e8ef); }
+.practice-summary-modal .practice-admin-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; }

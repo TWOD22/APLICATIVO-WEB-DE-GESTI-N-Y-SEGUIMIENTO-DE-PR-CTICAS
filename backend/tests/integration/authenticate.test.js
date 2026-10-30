@@ -33,8 +33,7 @@ describe("middleware authenticate", { skip: !hayBaseDePruebas() && "defina TEST_
     await pool.query(
       `INSERT INTO usuarios_roles (usuario_id, rol_id)
        SELECT u.id, r.id FROM usuarios u, roles r
-        WHERE (u.firebase_uid = 'uid-inactivo' AND r.codigo = 'ESTUDIANTE')
-           OR (u.firebase_uid = 'uid-director' AND r.codigo = 'DOCENTE_SUPERVISOR')`
+        WHERE u.firebase_uid = 'uid-inactivo' AND r.codigo = 'ESTUDIANTE'`
     );
   });
 
@@ -72,19 +71,19 @@ describe("middleware authenticate", { skip: !hayBaseDePruebas() && "defina TEST_
     assert.equal((await correr(solicitud({ authorization: `Bearer ${token}` }))).error.codigo, "NO_ACTIVE_ROLES");
   });
 
-  it("con varios roles el contexto sale del header validado contra la base de datos", async () => {
+  it("el rol activo es el único del usuario y el header solo puede repetirlo", async () => {
     const token = firebase.emitirToken("uid-director");
     const base = { authorization: `Bearer ${token}` };
 
     const sinRol = await correr(solicitud(base));
     assert.equal(sinRol.error, undefined);
-    assert.equal(sinRol.req.auth.rolActivo, null);
-    assert.equal(sinRol.req.auth.roles.length, 2);
+    assert.equal(sinRol.req.auth.rolActivo, "DIRECTOR_PROGRAMA");
+    assert.equal(sinRol.req.auth.roles.length, 1);
 
-    const conRol = await correr(solicitud({ ...base, "x-active-role": "DOCENTE_SUPERVISOR" }));
-    assert.equal(conRol.req.auth.rolActivo, "DOCENTE_SUPERVISOR");
+    const conRol = await correr(solicitud({ ...base, "x-active-role": "DIRECTOR_PROGRAMA" }));
+    assert.equal(conRol.req.auth.rolActivo, "DIRECTOR_PROGRAMA");
 
-    const ajeno = await correr(solicitud({ ...base, "x-active-role": "ASESOR_SITIO" }));
+    const ajeno = await correr(solicitud({ ...base, "x-active-role": "DOCENTE_SUPERVISOR" }));
     assert.equal(ajeno.error.codigo, "ROLE_NOT_ASSIGNED");
     assert.equal(ajeno.error.estado_http, 403);
   });

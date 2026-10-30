@@ -17,10 +17,16 @@ import { ROLES } from "../utils/constants.js";
 
 const { ALCANCE } = assignmentRepository;
 
-/** Estados de la práctica en los que el estudiante todavía puede cargar documentos. */
-const ESTADOS_CARGA = ["PENDIENTE_DOCUMENTOS", "ACTIVA"];
+/**
+ * Estados de la práctica en los que el estudiante todavía puede cargar documentos.
+ * BORRADOR y DEVUELTA son las etapas de la solicitud (flujo v2); PENDIENTE_DOCUMENTOS y ACTIVA se conservan
+ * para las asignaciones manuales que crea el Director.
+ */
+const ESTADOS_CARGA = ["BORRADOR", "DEVUELTA", "PENDIENTE_DOCUMENTOS", "ACTIVA"];
+/** Mientras la práctica es solo una solicitud no se avisa a Dirección por cada archivo: el aviso llega al enviarla. */
+const ESTADOS_SOLICITUD = ["BORRADOR", "DEVUELTA"];
 /** Estados en los que Dirección ya no puede revisar documentos. */
-const ESTADOS_CERRADOS = ["CANCELADA", "FINALIZADA"];
+const ESTADOS_CERRADOS = ["CANCELADA", "FINALIZADA", "RECHAZADA", "BORRADOR"];
 
 // Decisiones de revisión: a qué estado pasa el documento y desde qué estados se permite.
 const DECISIONES = {
@@ -106,6 +112,8 @@ async function notificarDirectores(datos) {
  * Devuelve { completo, cambio: null | "HABILITADA" | "BLOQUEADA" | "ALERTA" }.
  */
 async function recalcularHabilitacion(client, asignacion) {
+  // Las solicitudes del flujo v2 no habilitan la bitácora: se habilita cuando el Director confirma la asignación.
+  if (asignacion.solicitada_por_id) return recalcularSolicitud(client, asignacion);
   const { total, aprobados } = await documentRepository.contarObligatorios(asignacion.id, client);
   const completo = aprobados === total;
   const bitacora = await documentRepository.buscarBitacoraDeAsignacion(asignacion.id, client);
@@ -128,6 +136,30 @@ async function recalcularHabilitacion(client, asignacion) {
   return { completo, cambio: null };
 }
 
+/**
+ * Flujo v2: el resultado de la revisión mueve la solicitud.
+ *  - Algún documento devuelto → DEVUELTA (el estudiante corrige solo lo rechazado y reenvía).
+ *  - Todos los obligatorios aprobados → la solicitud sigue ENVIADA y queda lista para que el Director la asigne
+ *    (la plaza ya viaja con el envío; no hay estados intermedios).
+ *  - Solicitudes antiguas en DOCUMENTOS_APROBADOS / PLAZA_SELECCIONADA se normalizan a ENVIADA.
+ * Devuelve { completo, cambio: null | "DEVUELTA" | "REABIERTA" }.
+ */
+async function recalcularSolicitud(client, asignacion) {
+  const resumen = await documentRepository.resumenExpediente(asignacion.id, client);
+  const completo = resumen.aprobados_obligatorios === resumen.total_obligatorios;
+  const estado = asignacion.estado;
+  if (!["ENVIADA", "DEVUELTA", "DOCUMENTOS_APROBADOS", "PLAZA_SELECCIONADA"].includes(estado)) {
+    return { completo, cambio: null };
+  }
+  const antigua = ["DOCUMENTOS_APROBADOS", "PLAZA_SELECCIONADA"].includes(estado);
+  let destino = null;
+  if (resumen.por_corregir > 0) destino = estado === "DEVUELTA" ? null : "DEVUELTA";
+  else if (antigua) destino = "ENVIADA";
+  if (!destino) return { completo, cambio: null };
+  await documentRepository.cambiarEstadoAsignacion(asignacion.id, destino, client);
+  return { completo, cambio: destino === "ENVIADA" ? "REABIERTA" : destino };
+}
+
 /** Informa a quien corresponda tras recalcular la habilitación (estudiante, o auditoría + Directores si la bitácora ya estaba enviada). */
 async function avisarCambioDeHabilitacion({ resultado, asignacion, contexto }) {
   if (resultado.cambio === "HABILITADA") {
@@ -142,6 +174,13 @@ async function avisarCambioDeHabilitacion({ resultado, asignacion, contexto }) {
       tipo: "BITACORA_BLOQUEADA",
       titulo: "Tu bitácora volvió a bloquearse",
       mensaje: "Un documento legal dejó de estar aprobado. Tu borrador se conserva.",
+      entidad: { tipo: "asignacion", id: asignacion.id },
+    });
+  } else if (resultado.cambio === "DEVUELTA") {
+    await notificar(asignacion.estudiante_firebase_uid, {
+      tipo: "SOLICITUD_DEVUELTA",
+      titulo: "Tu solicitud de práctica fue devuelta",
+      mensaje: "Hay documentos por corregir. Corrige solo los rechazados y vuelve a enviar la solicitud.",
       entidad: { tipo: "asignacion", id: asignacion.id },
     });
   } else if (resultado.cambio === "ALERTA") {
@@ -175,7 +214,7 @@ export async function listarDeAsignacion(asignacionId, auth) {
       estado: fila.estado,
       periodo: { id: fila.periodo_id, codigo: fila.periodo_codigo },
       nivel: { id: fila.nivel_id, codigo: fila.nivel_codigo, nombre: fila.nivel_nombre },
-      institucion: { id: fila.institucion_id, nombre: fila.institucion_nombre },
+      institucion: fila.institucion_id ? { id: fila.institucion_id, nombre: fila.institucion_nombre } : null,
       estudiante: {
         id: fila.estudiante_id,
         nombre_completo: `${fila.estudiante_nombres} ${fila.estudiante_apellidos}`,
@@ -284,12 +323,14 @@ export async function subir({ asignacionId, tipoId, contenido, tipoMime, nombreA
     entidad_id: asignacionId,
     valor_nuevo: { tipo: requisito.codigo, version: versionNueva, archivo: nombre, tamano_bytes: contenido.length, hash_sha256: hash },
   });
-  await notificarDirectores({
-    tipo: "DOCUMENTO_PENDIENTE_REVISION",
-    titulo: "Hay un documento por revisar",
-    mensaje: `${asignacion.estudiante_nombres} ${asignacion.estudiante_apellidos} cargó: ${requisito.nombre}`,
-    entidad: { tipo: "asignacion", id: asignacionId },
-  });
+  if (!ESTADOS_SOLICITUD.includes(asignacion.estado)) {
+    await notificarDirectores({
+      tipo: "DOCUMENTO_PENDIENTE_REVISION",
+      titulo: "Hay un documento por revisar",
+      mensaje: `${asignacion.estudiante_nombres} ${asignacion.estudiante_apellidos} cargó: ${requisito.nombre}`,
+      entidad: { tipo: "asignacion", id: asignacionId },
+    });
+  }
 
   const filas = await documentRepository.listarRequisitos(asignacionId);
   return armarItem(filas.find((f) => f.tipo_id === tipoId), { puedeSubir: true });
@@ -444,7 +485,7 @@ export async function listarExpedientes(filtros) {
         nombre_completo: `${f.estudiante_nombres} ${f.estudiante_apellidos}`,
         documento: f.estudiante_documento,
       },
-      institucion: { id: f.institucion_id, nombre: f.institucion_nombre },
+      institucion: f.institucion_id ? { id: f.institucion_id, nombre: f.institucion_nombre } : null,
       documentos: {
         total: f.total_requisitos, aprobados: f.aprobados, en_revision: f.en_revision,
         por_corregir: f.por_corregir, sin_cargar: f.sin_cargar,

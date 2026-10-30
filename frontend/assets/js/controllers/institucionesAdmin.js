@@ -157,6 +157,9 @@ export function montarInstituciones(ui) {
     clearTimeout(temporizador);
     temporizador = setTimeout(() => { estado.q = e.target.value.trim(); estado.pagina = 1; cargar(); }, 300);
   });
+  const convenioInicial = new URLSearchParams(window.location.search).get("convenio");
+  const selectorConvenio = document.querySelector("#institution-agreement-filter");
+  if (selectorConvenio && convenioInicial && [...selectorConvenio.options].some((o) => o.value === convenioInicial)) { selectorConvenio.value = convenioInicial; estado.convenio = convenioInicial; }
   document.querySelector("#institution-agreement-filter")?.addEventListener("change", (e) => { estado.convenio = e.target.value === "all" ? "" : e.target.value; estado.pagina = 1; cargar(); });
   document.querySelector("#institution-status-filter")?.addEventListener("change", (e) => { estado.activa = e.target.value === "all" ? "" : e.target.value; estado.pagina = 1; cargar(); });
 

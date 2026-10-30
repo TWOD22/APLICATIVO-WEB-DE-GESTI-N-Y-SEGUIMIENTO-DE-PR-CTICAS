@@ -20,5 +20,10 @@ if (!process.env.TEST_DATABASE_URL) {
 // (dotenv no sobrescribe variables ya definidas). Las pruebas del almacenamiento usan un fetch falso.
 for (const clave of ["SUPABASE_URL", "SUPABASE_SECRET_KEY", "SUPABASE_STORAGE_BUCKET"]) process.env[clave] = "";
 
+// Igual con el modo de eventos: aunque .env tenga EVENTS_MODE=outbox (uso real con el servicio de notificaciones),
+// las pruebas parten de «direct» y sin URL ni secreto del servicio. Las pruebas del outbox configuran lo suyo.
+process.env.EVENTS_MODE = "direct";
+for (const clave of ["NOTIFICATIONS_SERVICE_URL", "EVENTS_SHARED_SECRET"]) process.env[clave] = "";
+
 if (process.env.TEST_DATABASE_URL) process.env.DATABASE_URL = process.env.TEST_DATABASE_URL;
 else delete process.env.DATABASE_URL; // las pruebas de integración se omiten si no hay base de pruebas

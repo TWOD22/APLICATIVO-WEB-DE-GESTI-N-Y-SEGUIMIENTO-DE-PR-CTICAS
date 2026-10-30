@@ -19,3 +19,7 @@ logs/
 # beside it.
 /.plugins/
 /.opencode-skills/
+
+# Respaldos y datos de demostración (contienen datos y correos: nunca al repositorio)
+respaldo*.sql
+demo-cuentas.md

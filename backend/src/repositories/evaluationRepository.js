@@ -57,15 +57,48 @@ export async function publicar({ id, nota, retroalimentacion, evaluadorId }, db 
   return rowCount === 1;
 }
 
-/** Reabre una evaluación publicada: vuelve a BORRADOR conservando nota y retroalimentación para corregirlas. */
-export async function reabrir({ id, motivo }, db = pool) {
-  const { rowCount } = await db.query(
-    `UPDATE evaluaciones
-        SET estado = 'BORRADOR', publicada_en = NULL, reabierta_en = now(), motivo_reapertura = $2
-      WHERE id = $1 AND estado = 'PUBLICADA' AND eliminado_en IS NULL`,
-    [id, motivo]
+/**
+ * Corrige la nota de una evaluación ya publicada (la hace su propio evaluador). Guarda en `evaluaciones_historial`
+ * la versión que se reemplaza y actualiza la vigente. El trigger de la tabla no deja modificar una evaluación
+ * PUBLICADA directamente, por eso el cambio pasa por BORRADOR dentro de la misma transacción (nadie ve el estado
+ * intermedio). `reabierta_en` y `motivo_reapertura` se reutilizan como "última corrección" y su motivo.
+ * Debe llamarse dentro de una transacción con la evaluación bloqueada.
+ */
+export async function corregir({ id, nota, retroalimentacion, motivo, corregidaPorId }, db = pool) {
+  const { rows } = await db.query(
+    `SELECT nota, retroalimentacion, (SELECT count(*)::int FROM evaluaciones_historial WHERE evaluacion_id = $1) AS correcciones
+       FROM evaluaciones WHERE id = $1 AND estado = 'PUBLICADA' AND eliminado_en IS NULL`,
+    [id]
   );
-  return rowCount === 1;
+  const actual = rows[0];
+  if (!actual) return false;
+  await db.query(
+    `INSERT INTO evaluaciones_historial (evaluacion_id, version, nota, retroalimentacion, motivo, corregida_por_id)
+     VALUES ($1, $2, $3, $4, $5, $6)`,
+    [id, actual.correcciones + 1, actual.nota, actual.retroalimentacion, motivo, corregidaPorId]
+  );
+  await db.query(`UPDATE evaluaciones SET estado = 'BORRADOR' WHERE id = $1`, [id]);
+  await db.query(
+    `UPDATE evaluaciones
+        SET nota = $2, retroalimentacion = $3, estado = 'PUBLICADA', publicada_en = now(),
+            reabierta_en = now(), motivo_reapertura = $4
+      WHERE id = $1`,
+    [id, nota, retroalimentacion, motivo]
+  );
+  return true;
+}
+
+/** Versiones anteriores de una evaluación (la más reciente primero). */
+export async function listarHistorial(evaluacionId, db = pool) {
+  const { rows } = await db.query(
+    `SELECT h.version, h.nota::float8 AS nota, h.retroalimentacion, h.motivo, h.corregida_en,
+            u.nombres || ' ' || u.apellidos AS corregida_por
+       FROM evaluaciones_historial h JOIN usuarios u ON u.id = h.corregida_por_id
+      WHERE h.evaluacion_id = $1
+      ORDER BY h.version DESC`,
+    [evaluacionId]
+  );
+  return rows;
 }
 
 /**

@@ -16,6 +16,8 @@ export const listarUsuariosQuery = z.object({
   rol: z.enum(LISTA_ROLES).optional(),
   semestre: z.coerce.number().int().min(1).max(8).optional(),
   estado: z.enum(ESTADOS_USUARIO).optional(),
+  // Situación de práctica del estudiante en el periodo activo.
+  practica: z.enum(["SIN_SOLICITUD", "SOLICITUD", "EN_PRACTICA", "FINALIZADA", "RECHAZADA"]).optional(),
   ...paginacionQuery,
 });
 

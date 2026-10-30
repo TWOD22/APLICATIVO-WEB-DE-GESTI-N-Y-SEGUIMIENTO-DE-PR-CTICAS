@@ -22,6 +22,8 @@ export const ALCANCE = Object.freeze({
 
 export const SELECCION = `
   a.id, a.estado, a.fecha_inicio, a.fecha_fin, a.motivo_cancelacion, a.creado_en, a.actualizado_en,
+  a.motivo_rechazo, a.enviada_en, a.motivo_cambio_plaza, a.plaza_validada_en,
+  isol.id AS institucion_solicitada_id, isol.nombre AS institucion_solicitada_nombre, isol.ciudad AS institucion_solicitada_ciudad,
   pe.id AS periodo_id, pe.codigo AS periodo_codigo,
   n.id AS nivel_id, n.codigo AS nivel_codigo, n.nombre AS nivel_nombre, n.numero_semestre AS nivel_semestre,
   m.id AS matricula_id, m.numero_semestre AS estudiante_semestre,
@@ -40,7 +42,8 @@ export const DESDE = `
   JOIN periodos_academicos pe ON pe.id = m.periodo_academico_id
   JOIN usuarios e ON e.id = m.estudiante_id
   JOIN niveles_practica n ON n.id = a.nivel_practica_id
-  JOIN instituciones i ON i.id = a.institucion_id
+  LEFT JOIN instituciones i ON i.id = a.institucion_id
+  LEFT JOIN instituciones isol ON isol.id = a.institucion_solicitada_id
   LEFT JOIN usuarios d ON d.id = a.docente_supervisor_id
   LEFT JOIN usuarios s ON s.id = a.asesor_sitio_id`;
 
@@ -73,7 +76,18 @@ export function mapearAsignacion(fila, { conUid = false } = {}) {
       correo: fila.estudiante_correo,
       semestre: fila.estudiante_semestre,
     },
-    institucion: { id: fila.institucion_id, nombre: fila.institucion_nombre, ciudad: fila.institucion_ciudad },
+    // Mientras la práctica es solo una solicitud todavía no tiene plaza definida (institucion = null).
+    institucion: fila.institucion_id
+      ? { id: fila.institucion_id, nombre: fila.institucion_nombre, ciudad: fila.institucion_ciudad }
+      : null,
+    // Plaza que eligió el estudiante (puede ser distinta a la definitiva si el Director la cambió).
+    institucion_solicitada: fila.institucion_solicitada_id
+      ? { id: fila.institucion_solicitada_id, nombre: fila.institucion_solicitada_nombre, ciudad: fila.institucion_solicitada_ciudad }
+      : null,
+    motivo_rechazo: fila.motivo_rechazo,
+    motivo_cambio_plaza: fila.motivo_cambio_plaza,
+    enviada_en: fila.enviada_en,
+    plaza_validada_en: fila.plaza_validada_en,
     docente: persona(fila, "docente", conUid),
     asesor: persona(fila, "asesor", conUid),
     creado_en: fila.creado_en,
@@ -85,7 +99,8 @@ export function mapearAsignacion(fila, { conUid = false } = {}) {
 export function condicionesDeAlcance(alcance, p) {
   switch (alcance.tipo) {
     case "DIRECTOR":
-      return [];
+      // Los borradores son del estudiante: el Director los ve solo cuando la solicitud se envía.
+      return [`a.estado <> 'BORRADOR'`];
     case "DOCENTE":
       return [`a.docente_supervisor_id = ${p(alcance.usuarioId)}`, `a.estado <> 'CANCELADA'`];
     case "ASESOR":
@@ -121,7 +136,7 @@ export async function buscarPorId(id, alcance = ALCANCE.director(), db = pool) {
 
 /** Lista asignaciones con filtros, paginación y alcance por rol. */
 export async function listar(
-  { q, periodo_id, nivel, estado, completitud, institucion_id, docente_id, asesor_id, limit, offset },
+  { q, periodo_id, nivel, estado, estados, completitud, institucion_id, docente_id, asesor_id, limit, offset },
   alcance = ALCANCE.director(),
   db = pool
 ) {
@@ -134,6 +149,7 @@ export async function listar(
   if (periodo_id) condiciones.push(`m.periodo_academico_id = ${p(periodo_id)}`);
   if (nivel) condiciones.push(`n.numero_semestre = ${p(nivel)}`);
   if (estado) condiciones.push(`a.estado = ${p(estado)}::estado_asignacion`);
+  if (estados?.length) condiciones.push(`a.estado = ANY(${p(estados)}::estado_asignacion[])`);
   if (institucion_id) condiciones.push(`a.institucion_id = ${p(institucion_id)}`);
   if (docente_id) condiciones.push(`a.docente_supervisor_id = ${p(docente_id)}`);
   if (asesor_id) condiciones.push(`a.asesor_sitio_id = ${p(asesor_id)}`);
@@ -170,7 +186,7 @@ export async function listarEstudiantesSinAsignacion({ periodoId, q, limit, offs
     "m.periodo_academico_id = $1", "m.eliminado_en IS NULL", "m.estado_academico = 'ACTIVA'",
     "e.eliminado_en IS NULL", "e.estado = 'ACTIVO'",
     `NOT EXISTS (SELECT 1 FROM asignaciones_practica a
-                  WHERE a.matricula_estudiante_id = m.id AND a.eliminado_en IS NULL AND a.estado <> 'CANCELADA')`,
+                  WHERE a.matricula_estudiante_id = m.id AND a.eliminado_en IS NULL AND a.estado NOT IN ('CANCELADA', 'RECHAZADA'))`,
   ];
   if (q) {
     const patron = p(`%${escaparLike(q)}%`);
@@ -253,11 +269,11 @@ export async function tieneVinculacionVigente({ asesorId, institucionId, periodo
   return rows.length > 0;
 }
 
-/** ¿La matrícula ya tiene una asignación vigente (no cancelada ni finalizada)? */
+/** ¿La matrícula ya tiene una asignación vigente (no cancelada ni rechazada)? */
 export async function existeAsignacionVigente(matriculaId, db = pool) {
   const { rows } = await db.query(
     `SELECT 1 FROM asignaciones_practica
-      WHERE matricula_estudiante_id = $1 AND eliminado_en IS NULL AND estado <> 'CANCELADA'`,
+      WHERE matricula_estudiante_id = $1 AND eliminado_en IS NULL AND estado NOT IN ('CANCELADA', 'RECHAZADA')`,
     [matriculaId]
   );
   return rows.length > 0;
@@ -314,6 +330,59 @@ export async function cancelar(id, motivo, db = pool) {
   const { rows } = await db.query(
     `UPDATE asignaciones_practica SET estado = 'CANCELADA', motivo_cancelacion = $2
       WHERE id = $1 AND eliminado_en IS NULL AND estado <> 'CANCELADA' RETURNING id`,
+    [id, motivo]
+  );
+  return rows[0] ?? null;
+}
+
+/**
+ * Asesores disponibles en una institución y periodo, con cuántos practicantes tiene cada uno.
+ * Es informativo (no hay cupos): sirve para que el Director vea la carga antes de elegir.
+ */
+export async function listarAsesoresDeInstitucion({ institucionId, periodoId }, db = pool) {
+  const { rows } = await db.query(
+    `SELECT u.id, u.nombres, u.apellidos, u.correo_institucional AS correo, v.cargo,
+            (SELECT count(*)::int FROM asignaciones_practica a
+               JOIN matriculas_estudiantes m ON m.id = a.matricula_estudiante_id
+              WHERE a.asesor_sitio_id = u.id AND a.institucion_id = v.institucion_id
+                AND m.periodo_academico_id = v.periodo_academico_id AND a.eliminado_en IS NULL
+                AND a.estado IN ('PENDIENTE_DOCUMENTOS', 'ACTIVA', 'PENDIENTE_EVALUACION', 'FINALIZADA')) AS practicantes
+       FROM vinculaciones_asesores v
+       JOIN usuarios u ON u.id = v.asesor_id AND u.eliminado_en IS NULL AND u.estado = 'ACTIVO'
+      WHERE v.institucion_id = $1 AND v.periodo_academico_id = $2
+        AND v.activa AND v.eliminado_en IS NULL AND v.vigente_desde <= current_date
+        AND (v.vigente_hasta IS NULL OR v.vigente_hasta >= current_date)
+      ORDER BY practicantes, u.apellidos, u.nombres`,
+    [institucionId, periodoId]
+  );
+  return rows;
+}
+
+/**
+ * "Confirmar y asignar": define la plaza, el docente del nivel y el asesor, y deja la práctica ACTIVA.
+ * Solo actúa si la solicitud sigue ENVIADA (o en un estado antiguo equivalente); devuelve null si otro cambio se adelantó.
+ */
+export async function confirmarSolicitud(datos, db = pool) {
+  const { rows } = await db.query(
+    `UPDATE asignaciones_practica
+        SET institucion_id = $2, docente_supervisor_id = $3, asesor_sitio_id = $4,
+            motivo_cambio_plaza = $5, plaza_validada_por_id = $6, plaza_validada_en = now(),
+            asignada_por_id = $6, fecha_inicio = $7, fecha_fin = $8, estado = 'ACTIVA'
+      WHERE id = $1 AND eliminado_en IS NULL AND estado IN ('ENVIADA', 'DOCUMENTOS_APROBADOS', 'PLAZA_SELECCIONADA') RETURNING id`,
+    [
+      datos.id, datos.institucionId, datos.docenteId, datos.asesorId, datos.motivoCambioPlaza ?? null,
+      datos.directorId, datos.fecha_inicio ?? null, datos.fecha_fin ?? null,
+    ]
+  );
+  return rows[0] ?? null;
+}
+
+/** Rechaza la solicitud con su motivo. Solo desde los estados de solicitud abiertos. */
+export async function rechazarSolicitud(id, motivo, db = pool) {
+  const { rows } = await db.query(
+    `UPDATE asignaciones_practica SET estado = 'RECHAZADA', motivo_rechazo = $2
+      WHERE id = $1 AND eliminado_en IS NULL
+        AND estado IN ('ENVIADA', 'DEVUELTA', 'DOCUMENTOS_APROBADOS', 'PLAZA_SELECCIONADA') RETURNING id`,
     [id, motivo]
   );
   return rows[0] ?? null;

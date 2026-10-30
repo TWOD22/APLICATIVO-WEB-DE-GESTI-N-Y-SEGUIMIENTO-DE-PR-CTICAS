@@ -94,6 +94,7 @@ describe("Dashboards por rol", { skip: !hayBaseDePruebas() && "defina TEST_DATAB
       assert.ok(r.periodo?.id && r.periodo.estado === "ACTIVO");
       assert.deepEqual(r.indicadores, {
         practicas_activas: 6, practicas_finalizadas: 0, expedientes_completos: 4,
+        practicas_en_evaluacion: 3,
         evaluaciones_pendientes: 5, evaluaciones_publicadas: 1, instituciones_activas: 3,
       });
       assert.deepEqual(r.alertas, {
@@ -189,7 +190,10 @@ describe("Dashboards por rol", { skip: !hayBaseDePruebas() && "defina TEST_DATAB
       const l = await fila(A(ana), laura);
       assert.equal(l.mi_evaluacion.estado, "BORRADOR");
       assert.equal(l.mi_evaluacion.nota, null);
-      assert.ok(!JSON.stringify(l).includes("4.5"), "la nota del docente no aparece en la fila del asesor");
+      // Se busca la nota como número, no como texto: una fecha como "…14.512Z" también contiene "4.5" y haría fallar la prueba al azar.
+      const notas = [];
+      JSON.parse(JSON.stringify(l), (_clave, valor) => { if (typeof valor === "number") notas.push(valor); return valor; });
+      assert.ok(!notas.includes(4.5), "la nota del docente no aparece en la fila del asesor");
       assert.equal(await fila(A(ana), sofia), undefined);
       assert.equal((await practicas(A(luis))).total, 1);
     });

@@ -32,6 +32,14 @@ const ESTILOS = `
 .bell-item small { display: block; margin-top: 4px; font-size: 11px; color: var(--muted, #667085); }
 .bell-item .bell-dot { width: 8px; height: 8px; margin-top: 6px; border-radius: 50%; background: var(--blue, #1769d1); }
 .bell-item:not(.unread) .bell-dot { visibility: hidden; }
+.bell-list li { position: relative; }
+.bell-list li .bell-item { padding-right: 40px; }
+.bell-del { position: absolute; top: 8px; right: 8px; display: grid; place-items: center; width: 24px; height: 24px; border: 0; border-radius: 6px; background: transparent; color: var(--muted, #667085); font-size: 16px; line-height: 1; cursor: pointer; opacity: .55; }
+.bell-del:hover, .bell-del:focus-visible { opacity: 1; background: #fdecea; color: #d92d20; }
+.bell-head-actions { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; justify-content: flex-end; }
+.bell-link.danger { color: #d92d20; }
+.bell-confirm { display: flex; align-items: center; gap: 10px; padding: 10px 16px; border-bottom: 1px solid var(--line, #dfe5ee); background: #fdecea; font-size: 12px; }
+.bell-confirm span { flex: 1; }
 .bell-empty, .bell-estado { padding: 28px 16px; text-align: center; font-size: 12.5px; color: var(--muted, #667085); }
 .bell-foot { padding: 10px 16px; border-top: 1px solid var(--line, #dfe5ee); text-align: center; }
 .bell-link { border: 0; background: none; color: var(--blue, #1769d1); font: inherit; font-size: 12px; font-weight: 600; cursor: pointer; }
@@ -101,12 +109,15 @@ export function montarNotificaciones(ui) {
     const dashboard = pathFor(role, "dashboard");
 
     if (role === "estudiante") {
-      if (tipo.startsWith("DOCUMENTO") || tipo.startsWith("ALERTA")) return pathFor("estudiante", "documentos");
+      // Los documentos viven dentro de «Mi práctica» (solo una práctica ya activa con documentos pendientes usa la página aparte).
+      if (tipo.startsWith("DOCUMENTO") || tipo.startsWith("ALERTA") || tipo.startsWith("SOLICITUD")) return dashboard;
       if (tipo.startsWith("BITACORA")) return pathFor("estudiante", "bitacora");
       return dashboard;
     }
     if (role === "director") {
       if (tipo === "DOCUMENTO_PENDIENTE_REVISION" || tipo === "ALERTA_EXPEDIENTE") return e.id ? `${pathFor("director", "auditoria")}?asignacion=${encodeURIComponent(e.id)}` : pathFor("director", "auditoria");
+      // Una solicitud enviada o reenviada se revisa en la bandeja de solicitudes (aún no tiene plaza asignada).
+      if (tipo.startsWith("SOLICITUD") && e.id) return `${pathFor("director", "solicitudes")}?id=${encodeURIComponent(e.id)}`;
       if ((e.tipo === "asignacion_practica" || e.tipo === "asignacion") && e.id) return `${pathFor("director", "practica")}?id=${encodeURIComponent(e.id)}`;
       return dashboard;
     }
@@ -178,10 +189,10 @@ export function montarNotificaciones(ui) {
     else if (!hay && estado.cargando) cuerpo = `<div class="bell-estado">Cargando notificaciones…</div>`;
     else if (!hay) cuerpo = `<div class="bell-empty"><strong>No tienes notificaciones</strong><p>Aquí verás los avisos sobre tus documentos, bitácoras, evaluaciones y asignaciones.</p></div>`;
     else {
-      cuerpo = `<ul class="bell-list">${estado.items.map((n) => `<li><button type="button" class="bell-item ${n.leida ? "" : "unread"} ${n.prioridad === "alta" ? "alta" : ""}" data-bell-item="${escapar(n.id)}"><span class="bell-ico">${icon(iconoDe(n))}</span><span><strong>${escapar(n.titulo)}</strong>${n.mensaje ? `<p>${escapar(n.mensaje)}</p>` : ""}<small>${escapar(relativo(n.fecha))}</small></span><span class="bell-dot" aria-label="${n.leida ? "" : "Sin leer"}"></span></button></li>`).join("")}</ul>`;
+      cuerpo = `<ul class="bell-list">${estado.items.map((n) => `<li><button type="button" class="bell-item ${n.leida ? "" : "unread"} ${n.prioridad === "alta" ? "alta" : ""}" data-bell-item="${escapar(n.id)}"><span class="bell-ico">${icon(iconoDe(n))}</span><span><strong>${escapar(n.titulo)}</strong>${n.mensaje ? `<p>${escapar(n.mensaje)}</p>` : ""}<small>${escapar(relativo(n.fecha))}</small></span><span class="bell-dot" aria-label="${n.leida ? "" : "Sin leer"}"></span></button><button type="button" class="bell-del" data-bell-borrar="${escapar(n.id)}" aria-label="Borrar esta notificación" title="Borrar">×</button></li>`).join("")}</ul>`;
     }
     const hayMas = estado.items.length < estado.total;
-    panel.innerHTML = `<div class="bell-head"><h3>Notificaciones${estado.noLeidas ? ` · ${estado.noLeidas} sin leer` : ""}</h3><button class="bell-link" type="button" data-bell-todas ${estado.noLeidas ? "" : "disabled"}>Marcar todas como leídas</button></div>${cuerpo}${hayMas ? `<div class="bell-foot"><button class="bell-link" type="button" data-bell-mas ${estado.cargando ? "disabled" : ""}>${estado.cargando ? "Cargando…" : "Ver más antiguas"}</button></div>` : ""}${estado.error && hay ? `<p class="form-error" role="alert" style="padding:8px 16px;margin:0">${escapar(estado.error)}</p>` : ""}`;
+    panel.innerHTML = `<div class="bell-head"><h3>Notificaciones${estado.noLeidas ? ` · ${estado.noLeidas} sin leer` : ""}</h3><div class="bell-head-actions"><button class="bell-link" type="button" data-bell-todas ${estado.noLeidas ? "" : "disabled"}>Marcar todas como leídas</button>${hay ? '<button class="bell-link danger" type="button" data-bell-borrar-todas>Borrar todas</button>' : ""}</div></div>${estado.confirmarBorrado && hay ? '<div class="bell-confirm" role="alert"><span>¿Borrar todas tus notificaciones? No se puede deshacer.</span><button class="bell-link danger" type="button" data-bell-confirmar-borrado>Sí, borrar</button><button class="bell-link" type="button" data-bell-cancelar-borrado>Cancelar</button></div>' : ""}${cuerpo}${hayMas ? `<div class="bell-foot"><button class="bell-link" type="button" data-bell-mas ${estado.cargando ? "disabled" : ""}>${estado.cargando ? "Cargando…" : "Ver más antiguas"}</button></div>` : ""}${estado.error && hay ? `<p class="form-error" role="alert" style="padding:8px 16px;margin:0">${escapar(estado.error)}</p>` : ""}`;
   }
 
     /** Abre el panel y carga las notificaciones. */
@@ -196,6 +207,7 @@ export function montarNotificaciones(ui) {
   function cerrar({ devolverFoco = false } = {}) {
     if (!estado.abierto) return;
     estado.abierto = false;
+    estado.confirmarBorrado = false;
     panel.hidden = true;
     boton.setAttribute("aria-expanded", "false");
     if (devolverFoco) boton.focus();
@@ -210,6 +222,43 @@ export function montarNotificaciones(ui) {
     pintarContador();
     try { await api.patch(`/notifications/${id}/read`); }
     catch { n.leida = false; estado.noLeidas += 1; pintarContador(); }
+  }
+
+    /** Borra una notificación (se quita de inmediato y se restaura si el servidor falla). */
+  async function borrar(id) {
+    const i = estado.items.findIndex((x) => x.id === id);
+    if (i < 0) return;
+    const [n] = estado.items.splice(i, 1);
+    estado.total = Math.max(0, estado.total - 1);
+    if (!n.leida) estado.noLeidas = Math.max(0, estado.noLeidas - 1);
+    pintarContador();
+    pintarPanel();
+    try {
+      await api.delete(`/notifications/${id}`);
+    } catch (error) {
+      if (error?.status === 404) return; // ya no existía: el resultado es el mismo
+      estado.items.splice(i, 0, n);
+      estado.total += 1;
+      if (!n.leida) estado.noLeidas += 1;
+      pintarContador();
+      pintarPanel();
+      showToast(mensajeDeError(error));
+    }
+  }
+
+    /** Borra todas las notificaciones del usuario. */
+  async function borrarTodas() {
+    estado.confirmarBorrado = false;
+    try {
+      await api.delete("/notifications");
+      estado.items = []; estado.total = 0; estado.noLeidas = 0; estado.pagina = 1;
+      pintarContador();
+      pintarPanel();
+      showToast("Notificaciones borradas");
+    } catch (error) {
+      showToast(mensajeDeError(error));
+      pintarPanel();
+    }
   }
 
     /** Marca todas como leídas. */
@@ -234,6 +283,11 @@ export function montarNotificaciones(ui) {
   panel.addEventListener("click", async (e) => {
     if (e.target.closest("[data-bell-retry]")) { consultar(1); return; }
     if (e.target.closest("[data-bell-todas]")) { marcarTodas(); return; }
+    const borrarUna = e.target.closest("[data-bell-borrar]");
+    if (borrarUna) { borrar(borrarUna.dataset.bellBorrar); return; }
+    if (e.target.closest("[data-bell-borrar-todas]")) { estado.confirmarBorrado = true; pintarPanel(); return; }
+    if (e.target.closest("[data-bell-cancelar-borrado]")) { estado.confirmarBorrado = false; pintarPanel(); return; }
+    if (e.target.closest("[data-bell-confirmar-borrado]")) { borrarTodas(); return; }
     if (e.target.closest("[data-bell-mas]")) { consultar(estado.pagina + 1); return; }
     const item = e.target.closest("[data-bell-item]");
     if (!item) return;

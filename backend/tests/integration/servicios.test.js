@@ -190,14 +190,15 @@ describe("servicios + PostgreSQL real", { skip: !hayBaseDePruebas() && "defina T
       assert.equal(historial[0].evaluacion_docente_estado, "PENDIENTE");
     });
 
-    it("con varios roles exige elegir contexto y no suma permisos", async () => {
+    it("cada usuario tiene un solo rol: la base rechaza un segundo y el rol activo sale solo", async () => {
       const rolDocente = (await pool.query("SELECT id FROM roles WHERE codigo = 'DOCENTE_SUPERVISOR'")).rows[0].id;
-      await pool.query("INSERT INTO usuarios_roles (usuario_id, rol_id) VALUES ($1, $2)", [sesionDir.usuario.id, rolDocente]);
-      const multi = await auth.resolverSesion(DIRECTOR.firebase_uid, null);
-      assert.equal(multi.rolActivo, null);
-      assert.equal(auth.describirSesion(multi).requiere_seleccion_rol, true);
-      assert.equal((await auth.resolverSesion(DIRECTOR.firebase_uid, "DOCENTE_SUPERVISOR")).rolActivo, "DOCENTE_SUPERVISOR");
-      await pool.query("UPDATE usuarios_roles SET vigente_desde = current_date - 10, vigente_hasta = current_date - 1 WHERE usuario_id = $1 AND rol_id = $2", [sesionDir.usuario.id, rolDocente]);
+      await assert.rejects(
+        pool.query("INSERT INTO usuarios_roles (usuario_id, rol_id) VALUES ($1, $2)", [sesionDir.usuario.id, rolDocente]),
+        (error) => error.code === "23505"
+      );
+      const sesion = await auth.resolverSesion(DIRECTOR.firebase_uid, null);
+      assert.equal(sesion.rolActivo, "DIRECTOR_PROGRAMA");
+      assert.equal(auth.describirSesion(sesion).requiere_seleccion_rol, false);
       await rechaza(auth.resolverSesion(DIRECTOR.firebase_uid, "DOCENTE_SUPERVISOR"), { estado: 403, codigo: "ROLE_NOT_ASSIGNED" });
     });
 

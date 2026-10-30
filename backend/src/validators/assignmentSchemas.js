@@ -4,7 +4,10 @@
 import { z } from "zod";
 import { fechaIso, opcionalVacio, paginacionQuery, textoQuery, uuid } from "./commonSchemas.js";
 
-const ESTADOS = ["PENDIENTE_DOCUMENTOS", "ACTIVA", "PENDIENTE_EVALUACION", "FINALIZADA", "CANCELADA"];
+const ESTADOS = [
+  "BORRADOR", "ENVIADA", "DEVUELTA", "DOCUMENTOS_APROBADOS", "PLAZA_SELECCIONADA", "RECHAZADA",
+  "PENDIENTE_DOCUMENTOS", "ACTIVA", "PENDIENTE_EVALUACION", "FINALIZADA", "CANCELADA",
+];
 
 export const listarAsignacionesQuery = z.object({
   q: textoQuery,

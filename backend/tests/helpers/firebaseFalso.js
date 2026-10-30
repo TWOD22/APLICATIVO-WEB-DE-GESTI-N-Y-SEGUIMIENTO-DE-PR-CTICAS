@@ -71,6 +71,10 @@ export function crearFirebaseFalso() {
         estado.documentos.set(clave, opciones?.merge ? { ...(anterior ?? {}), ...valor } : { ...valor });
         if (ruta !== "borradores_bitacora") estado.eventos.push({ ruta, id, ...valor });
       },
+      delete: async () => {
+        fallaFirestore();
+        estado.documentos.delete(clave);
+      },
       // Como en Firestore, actualizar un documento inexistente falla (NOT_FOUND).
       update: async (cambios) => {
         fallaFirestore();
@@ -107,6 +111,7 @@ export function crearFirebaseFalso() {
       const operaciones = [];
       return {
         update: (ref, cambios) => operaciones.push(() => ref.update(cambios)),
+        delete: (ref) => operaciones.push(() => ref.delete()),
         commit: async () => {
           for (const operacion of operaciones) await operacion();
         },

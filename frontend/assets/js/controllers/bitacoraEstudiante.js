@@ -3,6 +3,7 @@
  * autoguardado del borrador, evidencias (JPG/PNG/PDF), cuestionario del nivel y envío definitivo.
  */
 import { api } from "../services/api.js";
+import { montarGuiaCriterios } from "./guiaCriterios.js";
 
 // Tipos de archivo permitidos como evidencia según su extensión.
 const MIME_POR_EXTENSION = { jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png", pdf: "application/pdf" };
@@ -87,7 +88,8 @@ export function montarBitacoraEstudiante(ui) {
   function encabezado(extra = "") {
     const a = estado.bit.asignacion;
     const [texto, tono] = ESTADOS[estado.bit.estado] || [estado.bit.estado, "info"];
-    return `<header class="page-title"><div><span class="eyebrow">${escapar(a.nivel.nombre)} · ${escapar(a.periodo.codigo)}</span><h2>Bitácora de práctica</h2><p>${escapar(a.institucion.nombre)} · Documenta tus actividades, aprendizajes y evidencias.</p></div>${extra || badge(texto, tono)}</header>`;
+    queueMicrotask(() => montarGuiaCriterios(a.nivel?.id, a.periodo?.id, pagina)); // corre cuando el encabezado ya está en la página
+    return `<header class="page-title"><div><span class="eyebrow">${escapar(a.nivel.nombre)} · ${escapar(a.periodo.codigo)}</span><h2>Bitácora de práctica</h2><p>${escapar(a.institucion.nombre)} · Documenta tus actividades, aprendizajes y evidencias.</p></div>${extra || badge(texto, tono)}</header><div data-guia-criterios></div>`;
   }
 
     /** Elige la vista: bloqueada (faltan documentos), editable o solo lectura. */

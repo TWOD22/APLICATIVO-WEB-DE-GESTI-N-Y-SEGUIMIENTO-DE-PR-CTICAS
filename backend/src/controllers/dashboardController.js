@@ -8,6 +8,12 @@ import { responderListado, responderOk } from "../utils/respuesta.js";
 /** Indicadores de resumen. */
 export const resumen = async (req, res) => responderOk(res, await dashboardService.resumen(req.query, req.auth));
 
+/** Tarjetas de acción inmediata (Director y Docente). */
+export const acciones = async (req, res) => responderOk(res, await dashboardService.acciones(req.query, req.auth));
+
+/** Niveles del docente con su estado de configuración. */
+export const misNiveles = async (req, res) => responderOk(res, await dashboardService.misNiveles(req.query, req.auth));
+
 /** Tabla de seguimiento de prácticas. */
 export const listarPracticas = async (req, res) => {
   const paginacion = calcularPaginacion(req.query);

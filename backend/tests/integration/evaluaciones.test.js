@@ -117,7 +117,7 @@ describe("evaluaciones, reapertura y cierre de la práctica + PostgreSQL real", 
       const detalle = await evaluaciones.obtener(id, D(docente));
       assert.equal(detalle.evaluacion.tipo, "DOCENTE_SUPERVISOR");
       assert.equal(detalle.evaluacion.editable, true);
-      assert.equal(detalle.evaluacion.reabrible, false);
+      assert.equal(detalle.evaluacion.corregible, false);
       assert.equal(detalle.bitacora.estado, "ENVIADA");
       assert.equal(detalle.bitacora.editable, false);
       assert.match(detalle.bitacora.contenido.reflexion, /juego simbólico/);
@@ -281,46 +281,50 @@ describe("evaluaciones, reapertura y cierre de la práctica + PostgreSQL real", 
     });
   });
 
-  describe("reapertura (Dirección)", () => {
-    it("no se reabre una evaluación sin publicar", async () => {
+  describe("corrección de nota (el propio evaluador)", () => {
+    it("no se corrige una evaluación sin publicar", async () => {
       const id = await idEval(aj[2], "ASESOR_SITIO");
-      await rechaza(evaluaciones.reabrir(id, { motivo: "Revisión de la nota" }, esc.director(), esc.ctx), { estado: 409, codigo: "EVALUATION_NOT_PUBLISHED" });
-      await rechaza(evaluaciones.reabrir("00000000-0000-4000-8000-000000000000", { motivo: "No existe" }, esc.director(), esc.ctx), { estado: 404, codigo: "EVALUATION_NOT_FOUND" });
+      await rechaza(evaluaciones.corregir(id, { nota: 3, motivo: "Revisión de la nota" }, A(asesor), ctxDe(asesor, "ASESOR_SITIO")), { estado: 409, codigo: "EVALUATION_NOT_PUBLISHED" });
+      await rechaza(evaluaciones.corregir("00000000-0000-4000-8000-000000000000", { nota: 3, motivo: "No existe" }, A(asesor), ctxDe(asesor, "ASESOR_SITIO")), { estado: 404, codigo: "EVALUATION_NOT_FOUND" });
     });
 
-    it("reabre con motivo: vuelve a BORRADOR, la bitácora a EN_EVALUACION y el estudiante deja de ver la nota", async () => {
+    it("solo el evaluador de ese tipo corrige: Dirección, estudiante y el otro evaluador no", async () => {
       const id = await idEval(aj[1], "DOCENTE_SUPERVISOR");
-      const r = await evaluaciones.reabrir(id, { motivo: "Error al digitar la nota" }, esc.director(), esc.ctx);
-      assert.equal(r.evaluacion.estado, "BORRADOR");
-      assert.equal(r.evaluacion.nota, null, "Dirección no ve el contenido de un borrador");
-      assert.ok(r.evaluacion.reabierta_en);
-      assert.equal(r.evaluacion.motivo_reapertura, "Error al digitar la nota");
-
-      const [fila] = await filas("SELECT estado, nota::text AS nota, publicada_en, reabierta_en, motivo_reapertura FROM evaluaciones WHERE id = $1", [id]);
-      assert.equal(fila.estado, "BORRADOR");
-      assert.equal(fila.nota, "4.25", "se conserva el contenido para que el evaluador lo corrija");
-      assert.equal(fila.publicada_en, null);
-      assert.equal(fila.motivo_reapertura, "Error al digitar la nota");
-      const bit = await estadoBitacora(aj[1].id);
-      assert.equal(bit.estado, "EN_EVALUACION");
-      assert.equal(bit.evaluada_en, null);
-
-      assert.equal(esc.auditoria("EVALUACION_REABIERTA").length, 1);
-      assert.equal(esc.avisos("EVALUACION_REABIERTA", docente.firebase_uid).length, 1);
-      assert.equal(esc.avisos("EVALUACION_REABIERTA", est[1].firebase_uid).length, 1);
-      await rechaza(evaluaciones.obtener(id, E(est[1])), { estado: 404, codigo: "EVALUATION_NOT_FOUND" });
-      assert.deepEqual((await cola(E(est[1]))).filas.map((f) => f.tipo), ["ASESOR_SITIO"], "la del asesor sigue publicada");
+      const cuerpo = { nota: 4.5, motivo: "Error al digitar la nota" };
+      await rechaza(evaluaciones.corregir(id, cuerpo, esc.director(), esc.ctx), { estado: 403 });
+      await rechaza(evaluaciones.corregir(id, cuerpo, E(est[1]), ctxDe(est[1], "ESTUDIANTE")), { estado: 403 });
+      await rechaza(evaluaciones.corregir(id, cuerpo, A(asesor), ctxDe(asesor, "ASESOR_SITIO")), { estado: 404, codigo: "EVALUATION_NOT_FOUND" });
     });
 
-    it("el evaluador la corrige y la vuelve a publicar: la bitácora queda EVALUADA otra vez", async () => {
+    it("no se acepta una corrección que no cambia nada", async () => {
       const id = await idEval(aj[1], "DOCENTE_SUPERVISOR");
-      const borrador = await evaluaciones.obtener(id, D(docente));
-      assert.equal(borrador.evaluacion.nota, 4.25);
-      assert.equal(borrador.evaluacion.editable, true);
-      await evaluaciones.publicar(id, { nota: 4.5, retroalimentacion: "Nota corregida" }, D(docente), ctxDe(docente, "DOCENTE_SUPERVISOR"));
-      assert.equal((await estadoBitacora(aj[1].id)).estado, "EVALUADA");
-      assert.equal((await filas("SELECT nota::text AS nota FROM evaluaciones WHERE id = $1", [id]))[0].nota, "4.50");
+      await rechaza(evaluaciones.corregir(id, { nota: 4.25, motivo: "Sin cambios reales" }, D(docente), ctxDe(docente, "DOCENTE_SUPERVISOR")), { estado: 422, codigo: "NO_CHANGES" });
+    });
+
+    it("corrige con motivo: la nota nueva queda publicada, la anterior en el historial y el estudiante la ve", async () => {
+      const id = await idEval(aj[1], "DOCENTE_SUPERVISOR");
+      const r = await evaluaciones.corregir(id, { nota: 4.5, retroalimentacion: "Nota corregida", motivo: "Error al digitar la nota" }, D(docente), ctxDe(docente, "DOCENTE_SUPERVISOR"));
+      assert.equal(r.evaluacion.estado, "PUBLICADA");
+      assert.equal(r.evaluacion.nota, 4.5);
+      assert.equal(r.evaluacion.motivo_correccion, "Error al digitar la nota");
+      assert.ok(r.evaluacion.corregida_en);
+      assert.equal(r.evaluacion.corregible, true);
+      assert.equal(r.historial.length, 1);
+      assert.equal(r.historial[0].version, 1);
+      assert.equal(r.historial[0].nota, 4.25);
+      assert.equal(r.historial[0].motivo, "Error al digitar la nota");
+
+      const h = await filas("SELECT version, nota::text AS nota, corregida_por_id FROM evaluaciones_historial WHERE evaluacion_id = $1", [id]);
+      assert.deepEqual(h.map((x) => [x.version, x.nota, x.corregida_por_id]), [[1, "4.25", docente.id]]);
+      assert.equal((await estadoBitacora(aj[1].id)).estado, "EVALUADA", "la corrección no cambia el estado de la bitácora");
       assert.equal((await evaluaciones.obtener(id, E(est[1]))).evaluacion.nota, 4.5);
+      assert.equal((await evaluaciones.obtener(id, E(est[1]))).historial, undefined, "el estudiante no ve el historial");
+      assert.equal(esc.auditoria("EVALUACION_CORREGIDA").length, 1);
+      assert.equal(esc.avisos("EVALUACION_CORREGIDA", est[1].firebase_uid).length, 1);
+
+      // una segunda corrección suma versión 2
+      const r2 = await evaluaciones.corregir(id, { nota: 4.5, retroalimentacion: "Texto ajustado", motivo: "Ajuste de redacción" }, D(docente), ctxDe(docente, "DOCENTE_SUPERVISOR"));
+      assert.deepEqual(r2.historial.map((x) => x.version), [2, 1]);
     });
   });
 
@@ -355,13 +359,13 @@ describe("evaluaciones, reapertura y cierre de la práctica + PostgreSQL real", 
       // Dirección la puede consultar como finalizada, y el historial conserva las notas por separado
       const dir = await cola(esc.director(), { asignacion_id: aj[5].id });
       assert.deepEqual(dir.filas.map((f) => [f.tipo, f.nota, f.asignacion.estado]), [["DOCENTE_SUPERVISOR", 4.5, "FINALIZADA"], ["ASESOR_SITIO", 3, "FINALIZADA"]]);
-      assert.ok(dir.filas.every((f) => f.editable === false && f.reabrible === false));
+      assert.ok(dir.filas.every((f) => f.editable === false && f.corregible === false));
     });
 
-    it("finalizada, la práctica queda cerrada: no se finaliza de nuevo, ni se reabre, edita o cancela", async () => {
+    it("finalizada, la práctica queda cerrada: no se finaliza de nuevo, ni se corrige, edita o cancela", async () => {
       await rechaza(evaluaciones.finalizarPractica(aj[5].id, esc.ctx), { estado: 409, codigo: "ASSIGNMENT_ALREADY_FINISHED" });
       const id = await idEval(aj[5], "DOCENTE_SUPERVISOR");
-      await rechaza(evaluaciones.reabrir(id, { motivo: "Ya terminó" }, esc.director(), esc.ctx), { estado: 422, codigo: "PRACTICE_FINISHED" });
+      await rechaza(evaluaciones.corregir(id, { nota: 1, motivo: "Ya terminó" }, D(docente), ctxDe(docente, "DOCENTE_SUPERVISOR")), { estado: 422, codigo: "PRACTICE_FINISHED" });
       await rechaza(evaluaciones.guardarBorrador(id, { nota: 1, retroalimentacion: null }, D(docente)), { estado: 422, codigo: "PRACTICE_FINISHED" });
       await rechaza(evaluaciones.publicar(id, { nota: 1 }, D(docente), ctxDe(docente, "DOCENTE_SUPERVISOR")), { estado: 422, codigo: "PRACTICE_FINISHED" });
       await rechaza(asignaciones.cancelar(aj[5].id, { motivo: "Intento tardío", confirmar: true }, esc.ctx), { estado: 422 });

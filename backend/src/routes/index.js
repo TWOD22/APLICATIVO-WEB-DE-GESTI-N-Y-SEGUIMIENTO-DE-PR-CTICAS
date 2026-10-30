@@ -14,6 +14,11 @@ import logbookRoutes from "./logbookRoutes.js";
 import evaluationRoutes from "./evaluationRoutes.js";
 import notificationRoutes from "./notificationRoutes.js";
 import dashboardRoutes from "./dashboardRoutes.js";
+import criteriaGuideRoutes from "./criteriaGuideRoutes.js";
+import levelTeacherRoutes from "./levelTeacherRoutes.js";
+import reportRoutes from "./reportRoutes.js";
+import documentRequirementRoutes from "./documentRequirementRoutes.js";
+import practiceRequestRoutes from "./practiceRequestRoutes.js";
 
 const router = Router();
 
@@ -28,6 +33,11 @@ router.use(logbookRoutes); // /logbooks y /practice-assignments/:id/logbook (ant
 router.use(evaluationRoutes); // /evaluations y /practice-assignments/:id/finish (antes que assignmentRoutes)
 router.use("/notifications", notificationRoutes); // bandeja del usuario autenticado
 router.use("/dashboard", dashboardRoutes); // indicadores y tabla de seguimiento por rol
+router.use(practiceRequestRoutes); // /me/practice-trajectory y /practice-requests (estudiante)
+router.use("/document-requirements", documentRequirementRoutes); // tipos de documento y requisitos por nivel (Director)
+router.use("/reports", reportRoutes); // reportes de gestión MEN/CNA (Director)
+router.use("/level-teachers", levelTeacherRoutes); // docente responsable de cada nivel (Director)
+router.use(criteriaGuideRoutes); // /levels/:nivelId/periods/:periodoId/criteria-guide
 router.use("/practice-assignments", assignmentRoutes);
 router.use(periodRoutes); // /programs, /periods, /practice-levels
 

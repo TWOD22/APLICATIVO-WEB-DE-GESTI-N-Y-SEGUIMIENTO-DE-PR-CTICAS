@@ -20,3 +20,9 @@ export const marcarLeida = async (req, res) => responderOk(res, await notificati
 
 /** Marca todas como leídas. */
 export const marcarTodasLeidas = async (req, res) => responderOk(res, await notificationService.marcarTodasComoLeidas(req.auth));
+
+/** Borra una. */
+export const eliminar = async (req, res) => responderOk(res, await notificationService.eliminar(req.params.id, req.auth));
+
+/** Borra todas. */
+export const eliminarTodas = async (req, res) => responderOk(res, await notificationService.eliminarTodas(req.auth));

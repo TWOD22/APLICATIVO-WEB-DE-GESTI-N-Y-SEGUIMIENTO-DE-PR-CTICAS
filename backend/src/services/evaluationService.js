@@ -1,7 +1,7 @@
 /**
  * Servicio de evaluaciones.
  * El Docente Supervisor y el Asesor de Sitio evalúan de forma independiente (nota de 0 a 5 y retroalimentación);
- * no se calcula ningún promedio. El Director puede reabrir una evaluación publicada y cierra la práctica cuando ambas están publicadas.
+ * no se calcula ningún promedio. Cada evaluador corrige su propia nota publicada (queda historial) y el Director cierra la práctica cuando ambas están publicadas.
  * Todas las operaciones que cambian estados usan transacciones con bloqueo de filas para evitar condiciones de carrera.
  */
 import { crearNotificacion, registrarAuditoria } from "../adapters/firestoreAdapter.js";
@@ -81,7 +81,7 @@ function exigirEvaluable({ evaluacion, asignacion, bitacora }) {
   }
   if (evaluacion.estado === "PUBLICADA") {
     throw ApiError.conflicto(
-      "Esta evaluación ya fue publicada. Para modificarla, Dirección debe reabrirla.",
+      "Esta evaluación ya fue publicada. Para modificarla usa la corrección de nota.",
       "EVALUATION_ALREADY_PUBLISHED"
     );
   }
@@ -108,7 +108,7 @@ const evaluadorVisible = (tipo, estado, fila, asignacion) => {
 /** La nota y la retroalimentación de un borrador solo las ve su autor; todos los demás solo ven lo publicado. */
 const contenidoVisible = (auth, estado) => esEvaluador(auth) || estado === "PUBLICADA";
 
-/** Arma la evaluación para el frontend ocultando nota/comentarios de borradores a quien no es su autor, e indicando si es editable o reabrible. */
+/** Arma la evaluación para el frontend ocultando nota/comentarios de borradores a quien no es su autor, e indicando si es editable o corregible. */
 function armarEvaluacion(fila, auth, asignacion) {
   const visible = contenidoVisible(auth, fila.estado);
   const enEvaluacion = asignacion.estado === "PENDIENTE_EVALUACION";
@@ -121,10 +121,10 @@ function armarEvaluacion(fila, auth, asignacion) {
     retroalimentacion: visible ? fila.retroalimentacion : null,
     evaluador: evaluadorVisible(fila.tipo_evaluador, fila.estado, fila, asignacion),
     publicada_en: fila.publicada_en,
-    reabierta_en: auth.rolActivo === ROLES.ESTUDIANTE ? null : fila.reabierta_en,
-    motivo_reapertura: auth.rolActivo === ROLES.ESTUDIANTE ? null : fila.motivo_reapertura,
+    corregida_en: fila.reabierta_en ?? null,
+    motivo_correccion: auth.rolActivo === ROLES.ESTUDIANTE ? null : fila.motivo_reapertura ?? null,
     editable: propia && enEvaluacion && fila.estado !== "PUBLICADA",
-    reabrible: auth.rolActivo === ROLES.DIRECTOR_PROGRAMA && enEvaluacion && fila.estado === "PUBLICADA",
+    corregible: propia && enEvaluacion && fila.estado === "PUBLICADA",
   };
 }
 
@@ -142,7 +142,7 @@ function armarFila(fila, auth) {
     asignacion
   );
   // La cola no necesita el motivo ni el detalle: se ven al abrir la evaluación.
-  const { motivo_reapertura: _motivo, retroalimentacion: _retro, ...resumen } = evaluacion;
+  const { motivo_correccion: _motivo, retroalimentacion: _retro, ...resumen } = evaluacion;
   return {
     ...resumen,
     bitacora: { id: fila.bitacora_id, estado: fila.bitacora_estado, enviada_en: fila.enviada_en },
@@ -188,6 +188,7 @@ export async function obtener(id, auth) {
   };
   if (auth.rolActivo !== ROLES.ESTUDIANTE) {
     resultado.bitacora = await logbookService.obtener(evaluacion.bitacora_id, auth);
+    resultado.historial = await evaluationRepository.listarHistorial(id);
   }
   return resultado;
 }
@@ -228,7 +229,7 @@ const notificar = (firebaseUid, datos) => (firebaseUid ? crearNotificacion(fireb
 /**
  * Publica la evaluación (transaccional): exige una nota entre 0 y 5, registra quién publicó y deja la bitácora en
  * EN_EVALUACION o, si ya están publicadas las dos evaluaciones, en EVALUADA. No se calcula ningún promedio.
- * La publicación es inmutable; para corregirla Dirección debe reabrirla.
+ * Para cambiar una nota ya publicada se usa `corregir`.
  */
 export async function publicar(id, entrada, auth, contexto) {
   exigirEvaluador(auth);
@@ -289,56 +290,63 @@ export async function publicar(id, entrada, auth, contexto) {
 }
 
 /**
- * Dirección reabre una evaluación publicada (con motivo) para que su autor la corrija. Mientras esté reabierta el
- * estudiante deja de verla y la bitácora vuelve a EN_EVALUACION. No se puede reabrir con la práctica finalizada.
+ * El evaluador (docente o asesor) corrige su propia nota publicada, con motivo. La versión anterior queda en el
+ * historial. Solo mientras la práctica está PENDIENTE_EVALUACION; la bitácora y el resto de estados no cambian.
  */
-export async function reabrir(id, { motivo }, auth, contexto) {
-  const previa = await evaluationRepository.buscarPorId(id);
-  if (!previa) throw ApiError.noEncontrado("La evaluación no existe.", "EVALUATION_NOT_FOUND");
+export async function corregir(id, { nota, retroalimentacion, motivo }, auth, contexto) {
+  exigirEvaluador(auth);
+  const { evaluacion: previa } = await cargarAutorizada(id, auth);
 
   const bloqueado = await withTransaction(async (client) => {
     const datos = await bloquearParaEvaluar(id, previa.asignacion_id, previa.bitacora_id, client);
     if (datos.evaluacion.estado !== "PUBLICADA") {
-      throw ApiError.conflicto("La evaluación no está publicada, no hay nada que reabrir.", "EVALUATION_NOT_PUBLISHED");
+      throw ApiError.conflicto("La evaluación aún no está publicada: publícala en lugar de corregirla.", "EVALUATION_NOT_PUBLISHED");
     }
     if (datos.asignacion.estado === "FINALIZADA") {
-      throw ApiError.reglaDeNegocio("La práctica ya fue finalizada: las evaluaciones no pueden reabrirse.", "PRACTICE_FINISHED");
+      throw ApiError.reglaDeNegocio("La práctica ya fue finalizada: las evaluaciones están cerradas.", "PRACTICE_FINISHED");
     }
     if (datos.asignacion.estado !== "PENDIENTE_EVALUACION") {
       throw ApiError.reglaDeNegocio("La práctica no está en evaluación.", "EVALUATION_NOT_AVAILABLE");
     }
-    await evaluationRepository.reabrir({ id, motivo }, client);
-    await logbookRepository.cambiarEstado({ id: datos.bitacora.id, estado: "EN_EVALUACION" }, client);
+    const retroNueva = retroalimentacion !== undefined ? retroalimentacion : datos.evaluacion.retroalimentacion;
+    if (Number(datos.evaluacion.nota) === nota && (datos.evaluacion.retroalimentacion ?? null) === (retroNueva ?? null)) {
+      throw ApiError.reglaDeNegocio("La corrección no cambia ni la nota ni la retroalimentación.", "NO_CHANGES");
+    }
+    await evaluationRepository.corregir(
+      { id, nota, retroalimentacion: retroNueva, motivo, corregidaPorId: auth.usuario.id },
+      client
+    );
     return datos;
   });
 
   await registrarAuditoria({
     contexto,
-    accion: "EVALUACION_REABIERTA",
+    accion: "EVALUACION_CORREGIDA",
     entidad: "evaluaciones",
     entidad_id: id,
-    valor_anterior: { estado: "PUBLICADA", nota: bloqueado.evaluacion.nota },
-    valor_nuevo: { estado: "BORRADOR", motivo, tipo: bloqueado.evaluacion.tipo_evaluador, bitacora_estado: "EN_EVALUACION" },
-  });
-  await notificar(bloqueado.evaluacion.evaluador_firebase_uid, {
-    tipo: "EVALUACION_REABIERTA",
-    titulo: "Dirección reabrió una evaluación tuya",
-    mensaje: motivo,
-    prioridad: "alta",
-    entidad: { tipo: "evaluacion", id },
+    valor_anterior: { nota: bloqueado.evaluacion.nota },
+    valor_nuevo: { nota, motivo, tipo: bloqueado.evaluacion.tipo_evaluador },
   });
   await notificar(bloqueado.asignacion.estudiante_firebase_uid, {
-    tipo: "EVALUACION_REABIERTA",
-    titulo: "Una evaluación está en revisión",
-    mensaje: `Tu ${NOMBRE_TIPO[bloqueado.evaluacion.tipo_evaluador]} está revisando su evaluación; la verás de nuevo cuando la publique.`,
+    tipo: "EVALUACION_CORREGIDA",
+    titulo: "Se corrigió una evaluación tuya",
+    mensaje: `Tu ${NOMBRE_TIPO[bloqueado.evaluacion.tipo_evaluador]} corrigió su evaluación.`,
     entidad: { tipo: "evaluacion", id },
   });
+  for (const director of await documentRepository.listarDirectores()) {
+    await notificar(director.firebase_uid, {
+      tipo: "EVALUACION_CORREGIDA",
+      titulo: "Un evaluador corrigió una nota",
+      mensaje: motivo,
+      entidad: { tipo: "evaluacion", id },
+    });
+  }
   return obtener(id, auth);
 }
 
 /**
  * Cierre de la práctica (solo Dirección): exige las dos evaluaciones publicadas. Pasa la asignación a FINALIZADA,
- * después de lo cual ya no se editan ni reabren las evaluaciones. Las notas se conservan por separado.
+ * después de lo cual ya no se editan ni corrigen las evaluaciones. Las notas se conservan por separado.
  */
 export async function finalizarPractica(asignacionId, contexto) {
   const previa = await assignmentRepository.buscarPorId(asignacionId, ALCANCE.director());
