@@ -189,11 +189,11 @@ SELECT pg_temp.debe_fallar('responder una pregunta ajena al cuestionario de la b
 CREATE TEMP TABLE bit AS SELECT id FROM bitacoras;
 CREATE FUNCTION pg_temp.bit() RETURNS uuid LANGUAGE sql AS $$ SELECT id FROM bit $$;
 
-INSERT INTO evaluaciones (asignacion_practica_id, bitacora_id, evaluador_id, tipo_evaluador)
-VALUES (pg_temp.asig(), pg_temp.bit(), pg_temp.v('doc'), 'DOCENTE_SUPERVISOR'),
-       (pg_temp.asig(), pg_temp.bit(), pg_temp.v('ase'), 'ASESOR_SITIO');
+INSERT INTO evaluaciones (asignacion_practica_id, evaluador_id, tipo_evaluador)
+VALUES (pg_temp.asig(), pg_temp.v('doc'), 'DOCENTE_SUPERVISOR'),
+       (pg_temp.asig(), pg_temp.v('ase'), 'ASESOR_SITIO');
 SELECT pg_temp.debe_fallar('segunda evaluación del mismo tipo para la asignación',
-  format($q$INSERT INTO evaluaciones (asignacion_practica_id, bitacora_id, evaluador_id, tipo_evaluador) VALUES (%L,%L,%L,'DOCENTE_SUPERVISOR')$q$, pg_temp.asig(), pg_temp.bit(), pg_temp.v('doc')), '23505');
+  format($q$INSERT INTO evaluaciones (asignacion_practica_id, evaluador_id, tipo_evaluador) VALUES (%L,%L,'DOCENTE_SUPERVISOR')$q$, pg_temp.asig(), pg_temp.v('doc')), '23505');
 SELECT pg_temp.debe_fallar('nota mayor a 5', $q$UPDATE evaluaciones SET nota = 5.5 WHERE tipo_evaluador = 'ASESOR_SITIO'$q$, '23514');
 SELECT pg_temp.debe_fallar('nota negativa', $q$UPDATE evaluaciones SET nota = -0.1 WHERE tipo_evaluador = 'ASESOR_SITIO'$q$, '23514');
 SELECT pg_temp.debe_fallar('publicar sin nota', $q$UPDATE evaluaciones SET estado = 'PUBLICADA', publicada_en = now() WHERE tipo_evaluador = 'ASESOR_SITIO'$q$, '23514');

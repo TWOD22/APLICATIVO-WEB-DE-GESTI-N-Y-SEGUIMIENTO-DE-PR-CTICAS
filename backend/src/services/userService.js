@@ -143,7 +143,6 @@ export async function crear(datos, contexto) {
         client
       );
       await roleRepository.asignarRol(usuario.id, rolDb.id, client);
-      if (programa) await enrollmentRepository.vincularUsuarioAPrograma(usuario.id, programa.id, client);
       if (rol === ROLES.ESTUDIANTE) {
         await enrollmentRepository.crearMatricula(
           { estudianteId: usuario.id, programaId: programa.id, periodoId: periodo.id, semestre: datos.semestre },

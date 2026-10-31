@@ -286,7 +286,7 @@ describe("bitácoras, borradores, evidencias y envío + PostgreSQL real", { skip
         });
         // Nada oficial se escribió en los intentos fallidos
         assert.equal((await filas("SELECT estado FROM bitacoras WHERE id = $1", [vista1.id]))[0].estado, "BORRADOR");
-        assert.equal((await filas("SELECT count(*)::int AS n FROM evaluaciones WHERE bitacora_id = $1", [vista1.id]))[0].n, 0);
+        assert.equal((await filas("SELECT count(*)::int AS n FROM evaluaciones WHERE asignacion_practica_id = (SELECT asignacion_practica_id FROM bitacoras WHERE id = $1)", [vista1.id]))[0].n, 0);
       });
 
       it("sin docente y asesor asignados no se puede enviar (EVALUATORS_MISSING)", async () => {
@@ -330,7 +330,7 @@ describe("bitácoras, borradores, evidencias y envío + PostgreSQL real", { skip
         const r = await enviar(vista1.id, est1, 99, "llave-envio-laura-01");
         assert.equal(r.idempotente, true);
         assert.equal(r.estado, "ENVIADA");
-        assert.equal((await filas("SELECT count(*)::int AS n FROM evaluaciones WHERE bitacora_id = $1 AND eliminado_en IS NULL", [vista1.id]))[0].n, 2);
+        assert.equal((await filas("SELECT count(*)::int AS n FROM evaluaciones WHERE asignacion_practica_id = (SELECT asignacion_practica_id FROM bitacoras WHERE id = $1) AND eliminado_en IS NULL", [vista1.id]))[0].n, 2);
         assert.equal(esc.auditoria("BITACORA_ENVIADA").length, 1);
         assert.equal(esc.avisos("BITACORA_ENVIADA", docente.firebase_uid).length, 1);
       });
@@ -352,7 +352,7 @@ describe("bitácoras, borradores, evidencias y envío + PostgreSQL real", { skip
         const revision = (await guardar(v.id, est4, { revision_base: v.contenido.revision, reflexion: REFLEXION, respuestas: respuestasCompletas() })).revision;
         const [a, b] = await Promise.all([enviar(v.id, est4, revision, "llave-carrera-est4"), enviar(v.id, est4, revision, "llave-carrera-est4")]);
         assert.deepEqual([a.idempotente, b.idempotente].sort(), [false, true]);
-        assert.equal((await filas("SELECT count(*)::int AS n FROM evaluaciones WHERE bitacora_id = $1", [v.id]))[0].n, 2);
+        assert.equal((await filas("SELECT count(*)::int AS n FROM evaluaciones WHERE asignacion_practica_id = (SELECT asignacion_practica_id FROM bitacoras WHERE id = $1)", [v.id]))[0].n, 2);
         assert.equal(esc.auditoria("BITACORA_ENVIADA").filter((e) => e.entidad_id === v.id).length, 1);
       });
     });
@@ -398,16 +398,16 @@ describe("bitácoras, borradores, evidencias y envío + PostgreSQL real", { skip
       });
 
       it("no se devuelve si un evaluador ya publicó su nota", async () => {
-        await esc.pool.query("UPDATE evaluaciones SET estado = 'PUBLICADA', nota = 4.5, publicada_en = now() WHERE bitacora_id = $1 AND tipo_evaluador = 'ASESOR_SITIO'", [vista1.id]);
+        await esc.pool.query("UPDATE evaluaciones SET estado = 'PUBLICADA', nota = 4.5, publicada_en = now() WHERE asignacion_practica_id = (SELECT asignacion_practica_id FROM bitacoras WHERE id = $1) AND tipo_evaluador = 'ASESOR_SITIO'", [vista1.id]);
         await rechaza(bitacoras.devolver(vista1.id, { motivo: "Falta detalle" }, esc.ctx), { estado: 422, codigo: "EVALUATION_ALREADY_PUBLISHED" });
-        await esc.pool.query("UPDATE evaluaciones SET estado = 'BORRADOR', nota = NULL, publicada_en = NULL WHERE bitacora_id = $1 AND tipo_evaluador = 'ASESOR_SITIO'", [vista1.id]);
+        await esc.pool.query("UPDATE evaluaciones SET estado = 'BORRADOR', nota = NULL, publicada_en = NULL WHERE asignacion_practica_id = (SELECT asignacion_practica_id FROM bitacoras WHERE id = $1) AND tipo_evaluador = 'ASESOR_SITIO'", [vista1.id]);
       });
 
       it("devuelve: la práctica vuelve a ACTIVA, se retiran las evaluaciones y el estudiante recibe su contenido para corregir", async () => {
         const r = await bitacoras.devolver(vista1.id, { motivo: "Amplía la reflexión con un ejemplo concreto" }, esc.ctx);
         assert.equal(r.estado, "DEVUELTA");
         assert.equal((await filas("SELECT estado FROM asignaciones_practica WHERE id = $1", [aj1.id]))[0].estado, "ACTIVA");
-        assert.equal((await filas("SELECT count(*)::int AS n FROM evaluaciones WHERE bitacora_id = $1 AND eliminado_en IS NULL", [vista1.id]))[0].n, 0);
+        assert.equal((await filas("SELECT count(*)::int AS n FROM evaluaciones WHERE asignacion_practica_id = (SELECT asignacion_practica_id FROM bitacoras WHERE id = $1) AND eliminado_en IS NULL", [vista1.id]))[0].n, 0);
         assert.equal(esc.auditoria("BITACORA_DEVUELTA").length, 1);
         assert.equal(esc.avisos("BITACORA_DEVUELTA", est1.firebase_uid).length, 1);
 
@@ -438,7 +438,7 @@ describe("bitácoras, borradores, evidencias y envío + PostgreSQL real", { skip
         const r = await enviar(vista1.id, est1, guardado.revision, "llave-envio-laura-02");
         assert.equal(r.estado, "ENVIADA");
         assert.equal(r.idempotente, false);
-        const evs = await filas("SELECT eliminado_en FROM evaluaciones WHERE bitacora_id = $1", [vista1.id]);
+        const evs = await filas("SELECT eliminado_en FROM evaluaciones WHERE asignacion_practica_id = (SELECT asignacion_practica_id FROM bitacoras WHERE id = $1)", [vista1.id]);
         assert.equal(evs.length, 4);
         assert.equal(evs.filter((e) => e.eliminado_en === null).length, 2);
         const [bit] = await filas("SELECT reflexion, devuelta_en, motivo_devolucion FROM bitacoras WHERE id = $1", [vista1.id]);

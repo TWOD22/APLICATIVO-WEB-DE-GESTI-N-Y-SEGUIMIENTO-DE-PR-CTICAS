@@ -188,9 +188,9 @@ export async function retirarEvidencia(id, db = pool) {
 /** Una evaluación pendiente por evaluador (docente y asesor), independientes entre sí. */
 export async function crearEvaluacionesPendientes({ asignacionId, bitacoraId, docenteId, asesorId }, db = pool) {
   await db.query(
-    `INSERT INTO evaluaciones (asignacion_practica_id, bitacora_id, evaluador_id, tipo_evaluador, estado)
-     VALUES ($1, $2, $3, 'DOCENTE_SUPERVISOR', 'PENDIENTE'), ($1, $2, $4, 'ASESOR_SITIO', 'PENDIENTE')`,
-    [asignacionId, bitacoraId, docenteId, asesorId]
+    `INSERT INTO evaluaciones (asignacion_practica_id, evaluador_id, tipo_evaluador, estado)
+     VALUES ($1, $2, 'DOCENTE_SUPERVISOR', 'PENDIENTE'), ($1, $3, 'ASESOR_SITIO', 'PENDIENTE')`,
+    [asignacionId, docenteId, asesorId]
   );
 }
 
@@ -198,7 +198,8 @@ export async function crearEvaluacionesPendientes({ asignacionId, bitacoraId, do
 export async function contarEvaluacionesPublicadas(bitacoraId, db = pool) {
   const { rows } = await db.query(
     `SELECT count(*)::int AS total FROM evaluaciones
-      WHERE bitacora_id = $1 AND estado = 'PUBLICADA' AND eliminado_en IS NULL`,
+      WHERE asignacion_practica_id = (SELECT asignacion_practica_id FROM bitacoras WHERE id = $1)
+        AND estado = 'PUBLICADA' AND eliminado_en IS NULL`,
     [bitacoraId]
   );
   return rows[0].total;
@@ -207,7 +208,8 @@ export async function contarEvaluacionesPublicadas(bitacoraId, db = pool) {
 /** Al devolver la bitácora, las evaluaciones sin publicar se retiran (se recrean en el siguiente envío). */
 export async function retirarEvaluacionesDeBitacora(bitacoraId, db = pool) {
   const { rowCount } = await db.query(
-    `UPDATE evaluaciones SET eliminado_en = now() WHERE bitacora_id = $1 AND eliminado_en IS NULL`,
+    `UPDATE evaluaciones SET eliminado_en = now()
+      WHERE asignacion_practica_id = (SELECT asignacion_practica_id FROM bitacoras WHERE id = $1) AND eliminado_en IS NULL`,
     [bitacoraId]
   );
   return rowCount;
@@ -217,7 +219,8 @@ export async function retirarEvaluacionesDeBitacora(bitacoraId, db = pool) {
 export async function listarEvaluaciones(bitacoraId, db = pool) {
   const { rows } = await db.query(
     `SELECT tipo_evaluador, estado FROM evaluaciones
-      WHERE bitacora_id = $1 AND eliminado_en IS NULL ORDER BY tipo_evaluador`,
+      WHERE asignacion_practica_id = (SELECT asignacion_practica_id FROM bitacoras WHERE id = $1)
+        AND eliminado_en IS NULL ORDER BY tipo_evaluador`,
     [bitacoraId]
   );
   return rows;
