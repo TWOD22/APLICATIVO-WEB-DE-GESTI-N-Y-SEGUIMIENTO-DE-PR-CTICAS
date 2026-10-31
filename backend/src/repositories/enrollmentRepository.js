@@ -15,22 +15,13 @@ export async function crearMatricula({ estudianteId, programaId, periodoId, seme
   return rows[0];
 }
 
-/** Vincula al usuario con el programa. */
-export async function vincularUsuarioAPrograma(usuarioId, programaId, db = pool) {
-  await db.query(
-    `INSERT INTO usuarios_programas (usuario_id, programa_academico_id) VALUES ($1, $2)
-     ON CONFLICT (usuario_id, programa_academico_id) WHERE eliminado_en IS NULL DO NOTHING`,
-    [usuarioId, programaId]
-  );
-}
-
-/** Programas del usuario. */
+/** Programas de la persona: los de sus matrículas (solo los estudiantes tienen; el personal no se vincula a un programa). */
 export async function listarProgramasDeUsuario(usuarioId, db = pool) {
   const { rows } = await db.query(
-    `SELECT p.id, p.codigo, p.nombre
-       FROM usuarios_programas up
-       JOIN programas_academicos p ON p.id = up.programa_academico_id AND p.eliminado_en IS NULL
-      WHERE up.usuario_id = $1 AND up.eliminado_en IS NULL
+    `SELECT DISTINCT p.id, p.codigo, p.nombre
+       FROM matriculas_estudiantes m
+       JOIN programas_academicos p ON p.id = m.programa_academico_id AND p.eliminado_en IS NULL
+      WHERE m.estudiante_id = $1 AND m.eliminado_en IS NULL
       ORDER BY p.nombre`,
     [usuarioId]
   );

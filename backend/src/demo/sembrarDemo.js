@@ -453,7 +453,7 @@ export async function limpiarDemo({ log = () => {} } = {}) {
   const tablas = [
     "respuestas_opciones", "respuestas_bitacora", "evidencias_bitacora", "evaluaciones_historial", "evaluaciones", "bitacoras",
     "documentos_legales_estudiantes", "asignaciones_practica", "matriculas_estudiantes", "vinculaciones_asesores", "docentes_niveles",
-    "guias_criterios", "opciones_pregunta", "preguntas", "cuestionarios", "archivos", "usuarios_roles", "usuarios_programas", "usuarios", "instituciones", "periodos_academicos",
+    "guias_criterios", "opciones_pregunta", "preguntas", "cuestionarios", "archivos", "usuarios_roles", "usuarios", "instituciones", "periodos_academicos",
   ];
   const quitados = {};
   try {
@@ -491,7 +491,6 @@ export async function limpiarDemo({ log = () => {} } = {}) {
     await borrar("cuestionarios", "DELETE FROM cuestionarios WHERE titulo ILIKE $1", [`%${MARCA_CUESTIONARIO}%`]);
     await borrar("archivos", "DELETE FROM archivos WHERE id IN (SELECT id FROM d_arch) OR subido_por_id = ANY($1::uuid[])", [usuarioIds]);
     await borrar("roles_de_usuario", "DELETE FROM usuarios_roles WHERE usuario_id = ANY($1::uuid[])", [usuarioIds]);
-    await borrar("programas_de_usuario", "DELETE FROM usuarios_programas WHERE usuario_id = ANY($1::uuid[])", [usuarioIds]);
     await borrar("usuarios", "DELETE FROM usuarios WHERE id = ANY($1::uuid[])", [usuarioIds]);
     await borrar("instituciones", "DELETE FROM instituciones WHERE correo ILIKE $1", [patron]);
     await borrar("periodos", "DELETE FROM periodos_academicos WHERE id = ANY($1::uuid[])", [periodoIds]);

@@ -6,7 +6,8 @@ import { condicionesDeAlcance, DESDE, SELECCION } from "./assignmentRepository.j
 import { escaparLike } from "../utils/pagination.js";
 
 const COLUMNAS = `
-  ev.id, ev.asignacion_practica_id AS asignacion_id, ev.bitacora_id, ev.evaluador_id, ev.tipo_evaluador,
+  ev.id, ev.asignacion_practica_id AS asignacion_id,
+  (SELECT bx.id FROM bitacoras bx WHERE bx.asignacion_practica_id = ev.asignacion_practica_id AND bx.eliminado_en IS NULL) AS bitacora_id, ev.evaluador_id, ev.tipo_evaluador,
   ev.nota::float8 AS nota, ev.retroalimentacion, ev.estado, ev.publicada_en, ev.reabierta_en, ev.motivo_reapertura,
   ev.creado_en, ev.actualizado_en,
   ue.nombres AS evaluador_nombres, ue.apellidos AS evaluador_apellidos, ue.firebase_uid AS evaluador_firebase_uid`;
@@ -122,7 +123,7 @@ export async function reasignarPendiente({ asignacionId, tipo, evaluadorId }, db
 
 const UNIONES = `
   JOIN evaluaciones ev ON ev.asignacion_practica_id = a.id AND ev.eliminado_en IS NULL
-  JOIN bitacoras b ON b.id = ev.bitacora_id AND b.eliminado_en IS NULL
+  JOIN bitacoras b ON b.asignacion_practica_id = ev.asignacion_practica_id AND b.eliminado_en IS NULL
   LEFT JOIN usuarios ue ON ue.id = ev.evaluador_id`;
 
 /**
@@ -162,7 +163,7 @@ export async function listar(filtros, alcance, { limit, offset }, db = pool) {
   const { rows } = await db.query(
     `SELECT ${SELECCION},
             ev.id AS evaluacion_id, ev.tipo_evaluador, ev.estado AS evaluacion_estado, ev.nota::float8 AS nota,
-            ev.retroalimentacion, ev.publicada_en, ev.reabierta_en, ev.bitacora_id, ev.evaluador_id,
+            ev.retroalimentacion, ev.publicada_en, ev.reabierta_en, b.id AS bitacora_id, ev.evaluador_id,
             b.estado AS bitacora_estado, b.enviada_en,
             ue.nombres AS evaluador_nombres, ue.apellidos AS evaluador_apellidos,
             count(*) OVER() AS total

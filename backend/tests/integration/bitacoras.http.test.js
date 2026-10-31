@@ -372,7 +372,7 @@ describe("API HTTP · cuestionarios y bitácoras", { skip: !hayBaseDePruebas() &
     const repetido = await enviar(tokenEstudiante, { revision_base: ultimaRevision }, "llave-http-0001");
     assert.equal(repetido.estado, 200);
     assert.equal(repetido.json.data.idempotente, true);
-    assert.equal((await pool.query("SELECT count(*)::int AS n FROM evaluaciones WHERE bitacora_id = $1", [bitacoraId])).rows[0].n, 2);
+    assert.equal((await pool.query("SELECT count(*)::int AS n FROM evaluaciones WHERE asignacion_practica_id = (SELECT asignacion_practica_id FROM bitacoras WHERE id = $1)", [bitacoraId])).rows[0].n, 2);
 
     const otraLlave = await enviar(tokenEstudiante, { revision_base: ultimaRevision }, "llave-http-0002");
     assert.equal(otraLlave.estado, 409);

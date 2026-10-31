@@ -37,11 +37,5 @@ export async function ejecutarSeedBase(client, { director } = {}) {
      ON CONFLICT (usuario_id, rol_id) WHERE eliminado_en IS NULL DO NOTHING`,
     [usuarioId]
   );
-  await client.query(
-    `INSERT INTO usuarios_programas (usuario_id, programa_academico_id)
-     SELECT $1, p.id FROM programas_academicos p WHERE p.codigo = 'LEI' AND p.eliminado_en IS NULL
-     ON CONFLICT (usuario_id, programa_academico_id) WHERE eliminado_en IS NULL DO NOTHING`,
-    [usuarioId]
-  );
   return { director: "ok", usuario_id: usuarioId };
 }
