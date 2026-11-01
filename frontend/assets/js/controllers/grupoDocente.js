@@ -11,14 +11,17 @@ import { montarCuestionarios } from "./cuestionariosAdmin.js";
 const PESTANAS = ["resumen", "criterios", "cuestionario"];
 const TAMANO_MAXIMO = 10 * 1024 * 1024;
 
+/** Texto de error legible; añade los detalles de validación del servidor. */
 const mensajeDeError = (error) => {
   const detalles = Array.isArray(error?.details) ? error.details.filter((d) => d?.mensaje).map((d) => d.mensaje) : [];
   return [error?.message || "Ocurrió un error inesperado.", ...detalles].join(" · ");
 };
+/** Fecha corta en español (ej. 12 oct 2026); vacía si el valor no es una fecha. */
 const fecha = (valor) => {
   const d = valor ? new Date(valor) : null;
   return d && !Number.isNaN(d.getTime()) ? d.toLocaleDateString("es-CO", { day: "2-digit", month: "short", year: "numeric" }) : "";
 };
+/** Tamaño de archivo legible (KB o MB). */
 const tamano = (bytes) => (bytes >= 1048576 ? `${(bytes / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`);
 
 /** Conecta la pantalla con la API. */
@@ -31,6 +34,7 @@ export function montarGrupoDocente(ui) {
   const nivel = () => estado.niveles.find((n) => n.id === estado.nivelId);
 
   // ───────────── Carga ─────────────
+  /** Trae los niveles que dirige el docente en el periodo activo y los pinta. */
   async function cargar() {
     pagina.innerHTML = `<p class="muted" style="padding:32px;text-align:center">Cargando tu grupo…</p>`;
     try {
@@ -45,6 +49,7 @@ export function montarGrupoDocente(ui) {
   }
 
   // ───────────── Pintado ─────────────
+  /** Dibuja la pantalla del grupo: selector de nivel y pestañas (resumen, guía de criterios y cuestionario). Avisa si aún no tiene nivel asignado. */
   function pintar() {
     if (!estado.niveles.length) {
       pagina.innerHTML = `<header class="page-title"><div><span class="eyebrow">Periodo ${escapar(estado.periodo?.codigo || "")}</span><h2>Mi grupo de práctica</h2></div></header>
@@ -64,6 +69,7 @@ export function montarGrupoDocente(ui) {
     pintarPestana();
   }
 
+  /** Muestra la pestaña elegida; el cuestionario usa un contenedor nuevo para no duplicar escuchadores. */
   function pintarPestana() {
     const panel = pagina.querySelector("#gd-panel");
     pagina.querySelectorAll("[data-gd-pestana]").forEach((b) => b.classList.toggle("active", b.dataset.gdPestana === estado.pestana));
@@ -76,6 +82,7 @@ export function montarGrupoDocente(ui) {
     montarCuestionarios(ui, { contenedor: caja, nivelIds: [estado.nivelId], puedeEditar: true });
   }
 
+  /** Pestaña «Resumen»: estudiantes del nivel, estado de la guía y del cuestionario. */
   function pintarResumen(panel) {
     const n = nivel();
     const estadoCuestionario = n.tiene_cuestionario ? badge("Habilitado", "success") : n.tiene_borrador ? badge("Borrador sin publicar", "warning") : badge("Sin cuestionario", "neutral");
@@ -92,6 +99,7 @@ export function montarGrupoDocente(ui) {
         </div></section>`;
   }
 
+  /** Pestaña «Guía de criterios»: guía vigente, historial de versiones y formulario para subir una nueva. */
   async function pintarCriterios(panel) {
     const turno = ++estado.turno;
     panel.innerHTML = `<section class="panel"><p class="muted" style="padding:24px;text-align:center">Cargando guía…</p></section>`;
@@ -118,6 +126,7 @@ export function montarGrupoDocente(ui) {
       </div></section>`;
   }
 
+  /** Valida que el archivo sea un PDF de hasta 10 MB y lo sube como nueva versión de la guía. */
   async function subirGuia(formulario) {
     const error = formulario.querySelector("[data-gd-error]");
     const archivo = formulario.archivo.files[0];
@@ -142,6 +151,7 @@ export function montarGrupoDocente(ui) {
   }
 
   /** Pregunta antes de una acción sobre la guía. Resuelve true si el docente confirma. */
+  /** Ventana de confirmación; devuelve una promesa con true (aceptó) o false (canceló). */
   function confirmarGuia({ titulo, texto, boton, peligro = false }) {
     return new Promise((resolver) => {
       const ventana = openModal(escapar(titulo), `<div><p>${escapar(texto)}</p><div class="form-actions"><button class="btn btn-secondary" type="button" data-close>Cancelar</button><button class="btn ${peligro ? "btn-danger" : "btn-primary"}" type="button" data-gd-ok>${escapar(boton)}</button></div></div>`);
@@ -152,6 +162,7 @@ export function montarGrupoDocente(ui) {
     });
   }
 
+  /** Deja como vigente una versión anterior de la guía o la elimina, previa confirmación. */
   async function cambiarVersion(accion, id, numero) {
     const base = `/levels/${estado.nivelId}/periods/${estado.periodo.id}/criteria-guide/versions/${id}`;
     const activar = accion === "activar";

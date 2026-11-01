@@ -10,10 +10,14 @@ export function montarReportes(ui) {
   const { badge, escapar, showToast } = ui;
   const pagina = document.querySelector(".page");
   const estado = { periodos: [], periodoId: null, datos: null, turno: 0, descargando: false };
+  /** Texto de error legible para mostrar al usuario. */
   const mensaje = (e) => e?.message || "Ocurrió un error inesperado.";
+  /** Número con coma decimal; muestra «—» si no hay dato. */
   const n = (v) => (v == null ? "—" : String(v).replace(".", ","));
+  /** Porcentaje con coma decimal; muestra «—» si no hay dato. */
   const pct = (v) => (v == null ? "—" : `${String(v).replace(".", ",")} %`);
 
+  /** Pide el resumen del periodo elegido (por defecto el activo) y lo pinta. `turno` descarta respuestas viejas si el usuario cambió de periodo. */
   async function cargar() {
     const turno = ++estado.turno;
     pagina.innerHTML = `<p class="muted practice-empty">Cargando reportes…</p>`;
@@ -31,10 +35,14 @@ export function montarReportes(ui) {
     }
   }
 
+  /** Tarjeta de indicador (título, valor y detalle). */
   const tarjeta = (titulo, valor, detalle, tono = "blue") => `<div class="stat-card"><span class="stat-icon ${tono}" aria-hidden="true"></span><div><span>${escapar(titulo)}</span><strong>${escapar(valor)}</strong><small>${escapar(detalle)}</small></div></div>`;
+  /** Tabla con encabezados; si no hay filas muestra el texto de «vacío». */
   const tabla = (columnas, filas, vacio) => `<div class="table-wrap"><table class="dashboard-practices"><thead><tr>${columnas.map((c) => `<th>${escapar(c)}</th>`).join("")}</tr></thead><tbody>${filas.length ? filas.join("") : `<tr><td colspan="${columnas.length}" class="muted">${escapar(vacio)}</td></tr>`}</tbody></table></div>`;
+  /** Sección con título y ayuda que envuelve una tabla. */
   const bloque = (titulo, ayuda, contenido) => `<section class="panel"><header class="panel-heading"><div><h3>${escapar(titulo)}</h3>${ayuda ? `<p>${escapar(ayuda)}</p>` : ""}</div></header>${contenido}</section>`;
 
+  /** Dibuja la pantalla: selector de periodo, tarjetas de cobertura y las tablas por nivel, evaluaciones, evaluadores e instituciones. */
   function pintar() {
     const d = estado.datos;
     const opciones = estado.periodos.map((p) => `<option value="${escapar(p.id)}" ${p.id === estado.periodoId ? "selected" : ""}>${escapar(p.codigo)}${p.es_activo ? " (activo)" : ""}</option>`).join("");
@@ -58,6 +66,7 @@ export function montarReportes(ui) {
       ${bloque("Instituciones receptoras", "Con prácticas en el periodo y estado de su convenio.", tabla(["Institución", "Convenio", "Estudiantes", "Asesores"], filasInst, "Aún no hay instituciones con prácticas iniciadas."))}`;
   }
 
+  /** Descarga el CSV o el PDF del periodo elegido. Bloquea el botón mientras dura para evitar descargas dobles. */
   async function descargar(archivo, boton) {
     if (estado.descargando) return;
     estado.descargando = true;
@@ -73,12 +82,14 @@ export function montarReportes(ui) {
     }
   }
 
+  /** Botones de la pantalla: descargar informes y reintentar la carga. */
   pagina.addEventListener("click", (e) => {
     const b = e.target.closest("button");
     if (!b) return;
     if (b.dataset.repDescargar) descargar(b.dataset.repDescargar, b);
     else if (b.hasAttribute("data-rep-reintentar")) cargar();
   });
+  /** Al cambiar el periodo se vuelve a cargar el reporte. */
   pagina.addEventListener("change", (e) => {
     if (e.target.matches("[data-rep-periodo]")) { estado.periodoId = e.target.value; cargar(); }
   });

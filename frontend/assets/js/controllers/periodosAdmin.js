@@ -14,18 +14,22 @@ export function montarPeriodos(ui) {
   const { badge, escapar, openModal, showToast } = ui;
   const pagina = document.querySelector(".page");
   const estado = { periodos: [], turno: 0 };
+  /** Texto de error legible; añade los detalles de validación del servidor. */
   const mensaje = (error) => {
     const detalles = Array.isArray(error?.details) ? error.details.filter((d) => d?.mensaje).map((d) => `${d.campo ? `${d.campo}: ` : ""}${d.mensaje}`) : [];
     return [error?.message || "Ocurrió un error inesperado.", ...detalles].join(" · ");
   };
+  /** Fecha corta en español; «—» si el valor no es válido. */
   const fecha = (valor) => {
     const d = new Date(`${String(valor).slice(0, 10)}T00:00:00`);
     return Number.isNaN(d.getTime()) ? "—" : d.toLocaleDateString("es-CO", { day: "numeric", month: "short", year: "numeric" });
   };
+  /** Lee (y borra) el aviso que dejó la recarga anterior, si el navegador permite guardarlo. */
   const leerAviso = () => { try { const t = sessionStorage.getItem(AVISO); sessionStorage.removeItem(AVISO); return t; } catch { return null; } };
   /** Tras activar o cerrar se recarga la página: el selector de periodo de la cabecera también debe actualizarse. */
   const recargarConAviso = (texto) => { try { sessionStorage.setItem(AVISO, texto); } catch { /* sin almacenamiento: solo se recarga */ } window.location.reload(); };
 
+  /** Trae los periodos académicos y los pinta; `aviso` es un mensaje opcional para mostrar arriba. */
   async function cargar(aviso = null) {
     const turno = ++estado.turno;
     pagina.innerHTML = `<p class="muted practice-empty">Cargando periodos…</p>`;
@@ -39,6 +43,7 @@ export function montarPeriodos(ui) {
     }
   }
 
+  /** Tabla de periodos con su estado y la acción que corresponde: activar el planificado, cerrar el activo o solo consulta. */
   function pintar(aviso) {
     const hayActivo = estado.periodos.some((p) => p.estado === "ACTIVO");
     const filas = estado.periodos.map((p) => {
@@ -60,6 +65,7 @@ export function montarPeriodos(ui) {
   }
 
   // ───────────── Crear ─────────────
+  /** Formulario para crear un periodo (código, nombre y fechas). */
   function nuevo() {
     const modal = openModal("Nuevo periodo académico", `<form novalidate><div class="form-grid">
       <label class="field"><span>Código</span><input name="codigo" placeholder="2027-1" maxlength="20" required /></label>
@@ -88,6 +94,7 @@ export function montarPeriodos(ui) {
   }
 
   // ───────────── Activar ─────────────
+  /** Pregunta qué traer del último periodo cerrado (matrículas, docentes por nivel, guías) y activa el periodo. */
   function activar(id) {
     const periodo = estado.periodos.find((p) => p.id === id);
     if (!periodo) return;
@@ -119,6 +126,7 @@ export function montarPeriodos(ui) {
   }
 
   // ───────────── Cerrar ─────────────
+  /** Muestra el resumen de cierre. Si hay prácticas en marcha no deja cerrar; si hay solicitudes abiertas avisa que se cancelarán. */
   async function cerrar(id) {
     const periodo = estado.periodos.find((p) => p.id === id);
     if (!periodo) return;
@@ -147,6 +155,7 @@ export function montarPeriodos(ui) {
     });
   }
 
+  /** Botones de la pantalla: nuevo, activar, cerrar y reintentar. */
   pagina.addEventListener("click", (e) => {
     const b = e.target.closest("button");
     if (!b) return;

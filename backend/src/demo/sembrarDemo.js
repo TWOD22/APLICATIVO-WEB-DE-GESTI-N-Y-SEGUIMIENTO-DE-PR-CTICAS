@@ -45,8 +45,11 @@ const ANTIGUEDAD_DIAS = {
   EVALUACION_EN_BORRADOR: [3, 9], LISTA_PARA_CERRAR: [3, 8], FINALIZADA: [10, 25], RECHAZADA: [5, 15],
 };
 
+/** Fecha en formato AAAA-MM-DD. */
 const iso = (fecha) => new Date(fecha).toISOString().slice(0, 10);
+/** Fecha resultante de sumar (o restar) días a otra. */
 const sumarDias = (fecha, dias) => new Date(new Date(fecha).getTime() + dias * 86400000);
+/** Días de diferencia entre dos fechas. */
 const diasEntre = (desde, hasta) => Math.round((new Date(hasta).getTime() - new Date(desde).getTime()) / 86400000);
 
 // ───────────────────────────── Sembrar ─────────────────────────────
@@ -78,6 +81,7 @@ export async function sembrarDemo({ log = () => {}, semilla, docenteCorreo } = {
 
   // Sesiones y contextos como los arma la API.
   const como = (rolActivo, u) => ({ rolActivo, usuario: { id: u.id, firebase_uid: u.firebase_uid } });
+  /** Contexto de auditoría para una acción hecha por un usuario; deja marcado el origen «demo-datos». */
   const ctxDe = (u, rol) => ({ actor: { usuario_id: u.id, firebase_uid: u.firebase_uid, rol_activo: rol }, direccion_ip: "127.0.0.1", agente_usuario: "demo-datos", request_id: "demo-datos" });
   const ctxDir = ctxDe(director, ROL.DIRECTOR);
 
@@ -86,6 +90,7 @@ export async function sembrarDemo({ log = () => {}, semilla, docenteCorreo } = {
   const nuevoDocumento = () => `88${String(++consecutivo).padStart(8, "0")}`;
   const correos = new Set();
 
+  /** Crea un usuario con el servicio real, le pone la contraseña de demostración en Firebase y devuelve sus datos con el id. */
   const persona = async (datos) => {
     datos = { ...datos, documento: datos.documento ?? nuevoDocumento() };
     const creado = await users.crear({ telefono: null, ...datos }, ctxDir);
@@ -229,11 +234,14 @@ export async function sembrarDemo({ log = () => {}, semilla, docenteCorreo } = {
 
   // Pasos del flujo de una práctica
   const sesionDe = (e) => ({ auth: como(ROL.ESTUDIANTE, e), ctx: ctxDe(e, ROL.ESTUDIANTE) });
+  /** El estudiante solicita la práctica de un nivel; devuelve el id de la solicitud. */
   const solicitar = async (e, codigo) => {
     const { auth, ctx } = sesionDe(e);
     return (await requests.crear({ nivel_practica_id: niveles[codigo].id }, auth, ctx)).id;
   };
+  /** El estudiante elige la institución donde quiere hacer la práctica. */
   const elegirPlaza = (e, id, clave) => requests.elegirPlaza(id, { institucion_id: inst[clave].id }, sesionDe(e).auth, sesionDe(e).ctx);
+  /** El estudiante sube los PDF de ejemplo de los documentos legales del nivel (todos, o solo los primeros `cantidad`). */
   const subirDocumentos = async (e, id, codigo, clave, cantidad = Infinity) => {
     const { auth, ctx } = sesionDe(e);
     for (const tipo of tiposPorNivel[codigo].slice(0, cantidad)) {
@@ -243,11 +251,16 @@ export async function sembrarDemo({ log = () => {}, semilla, docenteCorreo } = {
       }, auth, ctx);
     }
   };
+  /** El estudiante envía la solicitud a Dirección. */
   const enviarSolicitud = (e, id) => requests.enviar(id, sesionDe(e).auth, sesionDe(e).ctx);
+  /** Ids de los documentos legales vigentes de una solicitud. */
   const idsDocumentos = async (id) => (await pool.query("SELECT id FROM documentos_legales_estudiantes WHERE asignacion_practica_id = $1 AND es_version_actual AND eliminado_en IS NULL ORDER BY creado_en", [id])).rows.map((r) => r.id);
+  /** El Director aprueba el expediente completo. */
   const aprobarTodo = (id) => documents.aprobarExpediente(id, ctxDir);
+  /** El Director confirma la solicitud y asigna la práctica (institución, asesor y fechas). */
   const confirmar = (id, datos) => assignments.confirmarSolicitud(id, datos, ctxDir);
 
+  /** Genera respuestas al azar para las preguntas del cuestionario; algunas preguntas opcionales se dejan sin responder. */
   const respuestasPara = (preguntas) => preguntas.flatMap((p) => {
     if (!p.obligatoria && azar.siguiente() < 0.3) return [];
     if (p.tipo === "ABIERTA") return [{ pregunta_id: p.id, texto: azar.elegir(RESPUESTAS_ABIERTAS) }];
@@ -270,7 +283,9 @@ export async function sembrarDemo({ log = () => {}, semilla, docenteCorreo } = {
     if (hasta === "BORRADOR") return vista;
     return logbooks.enviar(vista.id, { revision_base: guardado.revision }, `demo-${vista.id}`.slice(0, 40), auth, ctx);
   };
+  /** Nota al azar entre 3,2 y 4,9 con un decimal. */
   const nota = () => Number(azar.entero(32, 49) / 10).toFixed(1);
+  /** El docente o el asesor registra su evaluación de una práctica con nota y retroalimentación al azar; la publica o la deja en borrador. */
   const evaluar = async (id, periodo, codigo, quien, { publicar }) => {
     const docente = docenteDe(periodo, codigo);
     const { rows } = await pool.query("SELECT id, tipo_evaluador FROM evaluaciones WHERE asignacion_practica_id = $1 AND eliminado_en IS NULL", [id]);
@@ -473,6 +488,7 @@ export async function limpiarDemo({ log = () => {} } = {}) {
       [`${PREFIJO_ARCHIVO_DEMO}%`, periodoIds]);
     rutasAEliminar.push(...(await cliente.query("SELECT ruta_almacenamiento AS ruta FROM archivos WHERE id IN (SELECT id FROM d_arch)")).rows.map((r) => r.ruta));
 
+    /** Ejecuta un DELETE y suma las filas eliminadas al conteo de esa tabla. */
     const borrar = async (nombre, sql, params = []) => { const r = await cliente.query(sql, params); quitados[nombre] = (quitados[nombre] ?? 0) + r.rowCount; };
     await borrar("respuestas_opciones", "DELETE FROM respuestas_opciones WHERE respuesta_bitacora_id IN (SELECT id FROM respuestas_bitacora WHERE bitacora_id IN (SELECT id FROM d_bit))");
     await borrar("respuestas", "DELETE FROM respuestas_bitacora WHERE bitacora_id IN (SELECT id FROM d_bit)");

@@ -332,11 +332,13 @@ const ETIQUETA_BITACORA = {
 const ETIQUETA_EVALUACION = {
   SIN_ENTREGA: ["Sin entrega", "neutral"], PENDIENTE: ["Pendiente", "neutral"], PARCIAL: ["Parcial", "warning"], COMPLETA: ["Evaluado", "success"],
 };
+/** Texto y color del estado de la bitácora de una práctica (finalizada, sin iniciar o el estado de la bitácora). */
 const etiquetaBitacora = (fila) => {
   if (fila.estado === "FINALIZADA") return ["Finalizada", "success"];
   if (!fila.bitacora) return ["Sin iniciar", "neutral"];
   return ETIQUETA_BITACORA[fila.bitacora.estado] || [fila.bitacora.estado, "info"];
 };
+/** Texto y color del estado global de la evaluación (docente y asesor). */
 const etiquetaEvaluacion = (fila) => ETIQUETA_EVALUACION[fila.evaluacion_global] || [fila.evaluacion_global, "neutral"];
 /** Muestra la nota con dos decimales o "Pendiente" si aún no existe. */
 const notaTexto = (evaluacion) => (evaluacion?.nota == null ? "Pendiente" : Number(evaluacion.nota).toFixed(2));
@@ -387,10 +389,12 @@ async function iniciarFiltrosSeguimiento() {
   } catch { /* sin niveles el filtro simplemente queda en "Todos" */ }
 }
 
+/** HTML del mensaje «cargando» que se muestra mientras llegan los datos. */
 function estadoCarga(texto) {
   return `<p class="muted" style="padding:24px 20px;text-align:center">${texto}</p>`;
 }
 
+/** HTML de un mensaje de error con un botón para reintentar la carga. */
 function estadoError(mensaje, accion) {
   return `<div style="padding:24px 20px;text-align:center"><p class="form-error" role="alert">${escapar(mensaje)}</p><button class="btn btn-secondary" type="button" data-${accion}>Reintentar</button></div>`;
 }
@@ -551,6 +555,7 @@ function pintarTablaPracticas(resultado) {
   botones.innerHTML = html;
 }
 
+/** Ventana con el resumen de una práctica del seguimiento (documentos, bitácora, evaluación) y las acciones de reasignar o cancelar. */
 function abrirResumenPractica(fila) {
   const [textoB, tonoB] = etiquetaBitacora(fila);
   const [textoE, tonoE] = etiquetaEvaluacion(fila);
@@ -572,18 +577,21 @@ function usersView() {
 }
 
 
+/** Vista del perfil de un usuario; el contenido lo dibuja perfilesAdmin.js. */
 function userProfileView() {
   shell('<p class="muted" style="padding:32px;text-align:center">Cargando…</p>', "Perfil de usuario");
   montarPerfilUsuario({ badge, escapar, icon, initials, openModal, pathFor, showToast });
 }
 
 
+/** Vista del perfil de una institución; el contenido lo dibuja institucionPerfil.js. */
 function institutionProfileView() {
   shell('<p class="muted" style="padding:32px;text-align:center">Cargando…</p>', "Institución");
   montarPerfilInstitucion({ badge, escapar, icon, initials, openModal, pathFor, showToast });
 }
 
 
+/** Vista del perfil de un asesor de sitio (es el mismo perfil de usuario). */
 function advisorProfileView() {
   // El perfil del asesor es el mismo perfil de usuario: muestra sus vinculaciones y sus practicantes.
   shell('<p class="muted" style="padding:32px;text-align:center">Cargando…</p>', "Asesor de sitio");
@@ -592,11 +600,13 @@ function advisorProfileView() {
 
 
 
+/** Vista del detalle de la práctica de un estudiante para el Director. */
 function studentPracticeDetailView() {
   shell('<p class="muted" style="padding:32px;text-align:center">Cargando…</p>', "Detalle de práctica");
   montarPracticaDirector({ badge, escapar, icon, initials, openModal, pathFor, showToast });
 }
 
+/** Vista de cuestionarios del Director, solo de consulta. */
 function templatesView() {
   shell('<p class="muted" style="padding:32px;text-align:center">Cargando…</p>', "Cuestionarios");
   // La Dirección consulta; el docente de cada nivel es quien los configura (ver «Mi grupo de práctica»).
@@ -1010,6 +1020,7 @@ const fechaCorta = (valor) => {
   return m ? `${m[3]} ${MESES[Number(m[2]) - 1]} ${m[1]}` : "Por definir";
 };
 
+/** Estado de la bitácora que ve el estudiante en su panel: bloqueada hasta que todos sus documentos legales estén aprobados, luego borrador, entregada o evaluada. */
 function estadoBitacoraEstudiante(practica) {
   const d = practica.documentos;
   const habilitada = Boolean(d && d.total > 0 && d.aprobados >= d.total);
@@ -1024,6 +1035,7 @@ function estadoBitacoraEstudiante(practica) {
   return { texto: "Bloqueada", clase: "locked", detalle: "Requiere expediente aprobado", enlace: "documentos" };
 }
 
+/** Tarjeta con la nota publicada por un evaluador, o «—» si aún no la publica. */
 function tarjetaNota(titulo, persona, evaluacion, ayuda) {
   const publicada = evaluacion?.nota != null;
   return `<div class="practice-grade"><span>${titulo}</span><strong>${publicada ? Number(evaluacion.nota).toFixed(2) : "—"}</strong><small>${escapar(persona?.nombre_completo || "Sin asignar")}${publicada ? "" : " · Pendiente"}</small>${publicada ? "" : `<p class="grade-help">${ayuda}</p>`}</div>`;
@@ -1076,6 +1088,7 @@ async function studentDashboard() {
   await cargarPracticaEstudiante();
 }
 
+/** Trae la práctica del estudiante en el periodo elegido, la pinta y actualiza el periodo mostrado en la cabecera. */
 async function cargarPracticaEstudiante() {
   const turno = ++estEstado.peticion;
   const pagina = document.querySelector(".page");

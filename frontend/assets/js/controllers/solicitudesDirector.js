@@ -39,15 +39,18 @@ const PASOS = [
   { id: 4, titulo: "Asesor", ayuda: "Confirmar y asignar" },
 ];
 
+/** Fecha corta en español (ej. 12 oct 2026); vacía si el valor no es una fecha. */
 const fecha = (valor) => {
   const d = valor ? new Date(valor) : null;
   return d && !Number.isNaN(d.getTime()) ? d.toLocaleDateString("es-CO", { day: "2-digit", month: "short", year: "numeric" }) : "";
 };
+/** Días enteros transcurridos desde una fecha; null si la fecha no es válida. */
 const diasDesde = (valor) => {
   const d = valor ? new Date(valor) : null;
   if (!d || Number.isNaN(d.getTime())) return null;
   return Math.max(0, Math.floor((Date.now() - d.getTime()) / 86_400_000));
 };
+/** Texto de espera: «Hoy», «Hace 1 día» o «Hace N días». */
 const textoEspera = (dias) => (dias === null ? "" : dias === 0 ? "Hoy" : dias === 1 ? "Hace 1 día" : `Hace ${dias} días`);
 
 /**
@@ -57,15 +60,18 @@ export function montarSolicitudes(ui) {
   const { badge, escapar, icon, initials, openModal, showToast } = ui;
   const pagina = document.querySelector(".page");
 
+  /** Texto de error legible; añade los detalles que envíe el servidor. */
   const mensaje = (error) => {
     const detalles = Array.isArray(error?.details) ? error.details.filter((d) => d?.mensaje || d?.nombre).map((d) => d.mensaje ?? d.nombre) : [];
     return [error?.message || "Ocurrió un error inesperado.", ...detalles].join(" · ");
   };
+  /** HTML de un mensaje de error con botón para reintentar. */
   const errorHtml = (texto, accion = "reintentar") => `<div class="practice-empty"><p class="form-error" role="alert">${escapar(texto)}</p><button class="btn btn-secondary" type="button" data-sd="${accion}">Reintentar</button></div>`;
 
   const lista = { q: "", estado: "", pagina: 1, turno: 0 };
   const asistente = { id: null, solicitud: null, documentos: null, historial: null, asesores: null, plazas: null, paso: 2, plazaFinal: null, motivoCambio: "", asesorId: null, inicio: "", fin: "", ocupado: false };
 
+  /** Ventana de confirmación; devuelve una promesa con true (aceptó) o false (canceló). */
   function confirmar({ titulo, texto, boton, peligro = false }) {
     return new Promise((resolver) => {
       const ventana = openModal(escapar(titulo), `<div class="practice-confirm"><p>${escapar(texto)}</p><div class="form-actions"><button class="btn btn-secondary" type="button" data-close>Cancelar</button><button class="btn ${peligro ? "btn-danger" : "btn-primary"}" type="button" data-sd-ok>${escapar(boton)}</button></div></div>`);
@@ -85,6 +91,7 @@ export function montarSolicitudes(ui) {
       </div><div id="sd-tabla"></div></section>`;
   }
 
+  /** Trae la página de solicitudes con la búsqueda y el filtro de estado activos; `turno` descarta respuestas viejas. */
   async function cargarBandeja() {
     const contenedor = pagina.querySelector("#sd-tabla");
     if (!contenedor) return;
@@ -102,6 +109,7 @@ export function montarSolicitudes(ui) {
     }
   }
 
+  /** Dibuja la tabla de solicitudes con su estado («Lista para asignar» cuando el expediente está completo), días de espera y paginación. */
   function pintarBandeja(contenedor, filas, meta) {
     const cuerpo = filas.map((s) => {
       const paraAsignar = Boolean(s.expediente?.expediente_completo) && s.estado !== "DEVUELTA";
@@ -122,6 +130,7 @@ export function montarSolicitudes(ui) {
       <footer class="pagination"><span>Mostrando ${desde} - ${Math.min(meta.page * meta.page_size, meta.total)} de ${meta.total} solicitudes</span><nav aria-label="Paginación">${botones.join("")}</nav></footer>`;
   }
 
+  /** Vuelve de la solicitud abierta al listado y quita el id de la dirección de la página. */
   function verBandeja() {
     asistente.id = null;
     history.replaceState(null, "", window.location.pathname);
@@ -172,6 +181,7 @@ export function montarSolicitudes(ui) {
     }
   }
 
+  /** Trae los asesores de la institución definitiva (la pedida o la que el Director eligió). Si solo hay uno, lo deja elegido. */
   async function cargarAsesores() {
     asistente.asesores = null;
     try {
@@ -192,6 +202,7 @@ export function montarSolicitudes(ui) {
     return docs?.resumen?.expediente_completo ? 4 : 2;
   };
 
+  /** Barra de los 4 pasos del asistente; solo se puede avanzar hasta el paso que permita el estado de la solicitud. */
   function stepper() {
     const s = asistente.solicitud;
     const maximo = pasoMaximo(s);
@@ -202,6 +213,7 @@ export function montarSolicitudes(ui) {
     }).join("")}</ol>`;
   }
 
+  /** Dibuja el asistente: estado de la solicitud, barra de pasos y el contenido del paso actual. */
   function pintarAsistente() {
     const s = asistente.solicitud;
     const [texto, tono] = ESTADOS[s.estado] || [s.estado, "neutral"];
@@ -214,10 +226,12 @@ export function montarSolicitudes(ui) {
       ${cuerpo}`;
   }
 
+  /** Botones «Anterior» y «Continuar» al pie de cada paso. */
   const pie = ({ anterior, siguiente, siguienteEtiqueta = "Continuar →", siguienteOff = false }) =>
     `<div class="form-actions sd-footer">${anterior ? `<button class="btn btn-secondary" type="button" data-sd="paso" data-n="${anterior}">← Anterior</button>` : "<span></span>"}${siguiente ? `<button class="btn btn-primary" type="button" data-sd="paso" data-n="${siguiente}" ${siguienteOff ? "disabled" : ""}>${siguienteEtiqueta}</button>` : ""}</div>`;
 
   // ── Paso 1: estudiante y trayectoria ──
+  /** Paso 1: quién solicita (el estudiante y los datos de su solicitud). */
   function paso1() {
     const s = asistente.solicitud;
     const est = s.estudiante;
@@ -242,6 +256,7 @@ export function montarSolicitudes(ui) {
     return `<article class="req-doc req-${tono}"><div class="req-doc-info"><strong>${escapar(d.tipo.nombre)}${d.obligatorio ? "" : " <small>(opcional)</small>"}</strong><p>${detalle}</p></div><div class="req-doc-actions">${badge(texto, tono)}${ver}${aprobar}${devolver}</div></article>`;
   }
 
+  /** Paso 2: revisar el expediente; aprobar o devolver cada documento legal. */
   function paso2() {
     const s = asistente.solicitud;
     const docs = asistente.documentos;
@@ -266,6 +281,7 @@ export function montarSolicitudes(ui) {
   }
 
   // ── Paso 3: plaza ──
+  /** Paso 3: validar la institución que pidió el estudiante o elegir otra (con el motivo del cambio). */
   function paso3() {
     const s = asistente.solicitud;
     const elegida = s.institucion_solicitada;
@@ -283,6 +299,7 @@ export function montarSolicitudes(ui) {
   }
 
   // ── Paso 4: asesor y confirmar (doble pantalla) ──
+  /** Paso 4: elegir asesor de sitio, fechas opcionales y asignar la práctica. Avisa si el nivel aún no tiene docente supervisor. */
   function paso4() {
     const s = asistente.solicitud;
     const a = asistente.asesores;
@@ -324,6 +341,7 @@ export function montarSolicitudes(ui) {
     }
   }
 
+  /** Pide el motivo y una observación obligatoria para devolver un documento al estudiante. */
   function abrirModalDevolver(documentoId, nombre) {
     const ventana = openModal(`Devolver ${escapar(nombre)}`, `<form id="sd-devolver" novalidate><p class="muted">El estudiante recibirá esta observación y deberá cargar el documento corregido. Tu solicitud quedará devuelta.</p>
       <label class="field"><span>Motivo</span><select name="motivo">${MOTIVOS_RECHAZO_DOC.map((m) => `<option>${escapar(m)}</option>`).join("")}</select></label>
@@ -342,6 +360,7 @@ export function montarSolicitudes(ui) {
     });
   }
 
+  /** Pide el motivo para rechazar la solicitud; el estudiante podrá solicitar de nuevo. */
   function abrirModalRechazo() {
     const ventana = openModal("Rechazar solicitud", `<form id="sd-rechazo" novalidate><p class="muted">La solicitud se cierra y el estudiante podrá solicitar de nuevo. Recibirá tu motivo.</p>
       <label class="field"><span>Motivo (obligatorio)</span><textarea name="motivo" rows="3" required placeholder="Explica por qué se rechaza…"></textarea></label>
@@ -358,6 +377,7 @@ export function montarSolicitudes(ui) {
     });
   }
 
+  /** Lista las instituciones activas con convenio vigente para cambiar la plaza pedida; al elegir una recarga los asesores. */
   async function elegirOtraPlaza() {
     if (!asistente.plazas) {
       try {
@@ -381,6 +401,7 @@ export function montarSolicitudes(ui) {
     });
   }
 
+  /** Pide confirmación y asigna la práctica con el asesor elegido (y la institución nueva si cambió); luego vuelve al listado. */
   async function confirmarAsignacion() {
     const s = asistente.solicitud;
     const a = asistente.asesores;
@@ -400,6 +421,7 @@ export function montarSolicitudes(ui) {
     if (hecho) verBandeja();
   }
 
+  /** Abre el PDF de un documento en una pestaña nueva mediante una URL firmada y temporal. */
   async function ver(documentoId) {
     const ventana = window.open("", "_blank");
     try {

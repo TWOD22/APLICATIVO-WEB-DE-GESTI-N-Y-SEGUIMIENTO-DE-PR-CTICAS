@@ -48,11 +48,13 @@ const TABLA_CRC = (() => {
   }
   return t;
 })();
+/** Suma de verificación CRC-32 que exige el formato PNG. */
 const crc32 = (buf) => {
   let c = 0xffffffff;
   for (const b of buf) c = TABLA_CRC[(c ^ b) & 0xff] ^ (c >>> 8);
   return (c ^ 0xffffffff) >>> 0;
 };
+/** Bloque de un archivo PNG: tipo, datos y suma de verificación. */
 const bloque = (tipo, datos) => {
   const cuerpo = Buffer.concat([Buffer.from(tipo, "latin1"), datos]);
   const largo = Buffer.alloc(4); largo.writeUInt32BE(datos.length);

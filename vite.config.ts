@@ -1,3 +1,9 @@
+/**
+ * Configuración de Vite del sistema de prácticas UDI.
+ * - Construye las páginas HTML del frontend como un sitio de varias páginas (carpeta dist).
+ * - Toma el título, la descripción y el idioma de .figma/make/site.json (plugin figmaSiteConfiguration).
+ * - VITE_API_URL (.env / .env.production) indica a qué backend se conecta el navegador.
+ */
 import { defineConfig, type HtmlTagDescriptor, type Plugin } from 'vite'
 import path from 'node:path'
 
