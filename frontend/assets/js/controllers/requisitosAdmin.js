@@ -10,11 +10,13 @@ export function montarRequisitos(ui) {
   const { badge, escapar, openModal, showToast } = ui;
   const pagina = document.querySelector(".page");
   const estado = { tipos: [], niveles: [], turno: 0 };
+  /** Texto de error legible; añade los detalles de validación que envíe el servidor. */
   const mensaje = (error) => {
     const detalles = Array.isArray(error?.details) ? error.details.filter((d) => d?.mensaje).map((d) => `${d.campo ? `${d.campo}: ` : ""}${d.mensaje}`) : [];
     return [error?.message || "Ocurrió un error inesperado.", ...detalles].join(" · ");
   };
 
+  /** Trae el catálogo de documentos y, por nivel, qué se pide; luego lo pinta. */
   async function cargar() {
     const turno = ++estado.turno;
     pagina.innerHTML = `<p class="muted practice-empty">Cargando documentos…</p>`;
@@ -39,6 +41,7 @@ export function montarRequisitos(ui) {
     return { obligatorio, opcional };
   };
 
+  /** Tabla de documentos con dónde se piden (obligatorio, opcional o ningún nivel) y sus acciones. */
   function pintar() {
     const total = estado.niveles.length;
     const filas = estado.tipos.map((t) => {
@@ -55,6 +58,7 @@ export function montarRequisitos(ui) {
   }
 
   // ───────────── Crear / editar ─────────────
+  /** Formulario para crear o editar un tipo de documento. Al crear uno nuevo abre enseguida la elección de niveles. */
   function formularioTipo(tipo) {
     const modal = openModal(tipo ? `Editar · ${escapar(tipo.nombre)}` : "Nuevo documento", `<form novalidate><div class="form-grid">
       <label class="field"><span>Nombre</span><input name="nombre" maxlength="120" value="${escapar(tipo?.nombre ?? "")}" placeholder="Certificado de EPS" required /></label>
@@ -84,6 +88,7 @@ export function montarRequisitos(ui) {
   }
 
   // ───────────── Niveles ─────────────
+  /** Ventana para elegir, nivel por nivel, si el documento es obligatorio, opcional o no se pide. Si el servidor avisa que afecta a estudiantes en curso, pide confirmar. */
   function niveles(tipoId) {
     const tipo = estado.tipos.find((t) => t.id === tipoId);
     if (!tipo) return;
@@ -131,6 +136,7 @@ export function montarRequisitos(ui) {
     });
   }
 
+  /** Activa o desactiva el documento en el servidor y recarga la lista. */
   async function cambiarActivo(tipo) {
     try {
       await api.patch(`/document-requirements/types/${tipo.id}`, { activo: !tipo.activo });
@@ -139,6 +145,7 @@ export function montarRequisitos(ui) {
     } catch (error) { showToast(mensaje(error)); }
   }
 
+  /** Activar es inmediato; desactivar pide confirmación antes. */
   function alternarActivo(tipoId) {
     const tipo = estado.tipos.find((t) => t.id === tipoId);
     if (!tipo) return;
@@ -147,6 +154,7 @@ export function montarRequisitos(ui) {
     modal.querySelector("[data-req-confirmar-off]").addEventListener("click", () => { modal.remove(); cambiarActivo(tipo); });
   }
 
+  /** Botones de la tabla: nuevo, editar, niveles, activar/desactivar y reintentar. */
   pagina.addEventListener("click", (e) => {
     const b = e.target.closest("button");
     if (!b) return;

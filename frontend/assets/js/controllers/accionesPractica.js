@@ -8,6 +8,7 @@ import { api } from "../services/api.js";
 // Estados en los que la práctica todavía puede reasignarse o cancelarse.
 export const ESTADOS_EDITABLES = ["PENDIENTE_DOCUMENTOS", "ACTIVA", "PENDIENTE_EVALUACION"];
 
+/** Texto de error legible; añade los detalles de validación del servidor. */
 const mensajeDeError = (error) => {
   const detalles = Array.isArray(error?.details) ? error.details.filter((d) => d?.mensaje).map((d) => `${d.campo ? `${d.campo}: ` : ""}${d.mensaje}`) : [];
   return [error?.message || "Ocurrió un error inesperado.", ...detalles].join(" · ");
@@ -37,6 +38,7 @@ export async function reasignarPractica(ui, asignacion, alTerminar) {
   const formulario = modal.querySelector("form");
   const selInstitucion = formulario.querySelector("[data-institucion]");
   const selAsesor = formulario.querySelector("[data-asesor]");
+  /** Llena la lista de asesores con los activos de la institución elegida. */
   const cargarAsesores = async () => {
     selAsesor.disabled = true;
     selAsesor.innerHTML = `<option value="">Cargando…</option>`;

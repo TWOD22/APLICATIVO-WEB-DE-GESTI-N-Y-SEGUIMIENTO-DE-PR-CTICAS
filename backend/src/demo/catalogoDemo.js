@@ -65,7 +65,9 @@ export const DOCENTE_PP1_SI_NO_EXISTE = { nivel: "PP1", nombres: "Juan Camilo", 
 const NOMBRES = ["Laura", "Valentina", "Daniela", "Camila", "Sofía", "Mariana", "Juliana", "Paula", "Natalia", "Andrea", "Karen", "Luisa", "Isabella", "Gabriela", "Alejandra", "Mónica", "Diana", "Yuliana", "Michelle", "Tatiana", "Sara", "Manuela", "Ángela", "Catalina", "Lorena", "Brenda", "Estefanía", "Johana", "Nicole", "Viviana", "Santiago", "Sebastián", "Juan David", "Felipe", "Camilo", "Daniel", "Carlos", "Andrés"];
 const APELLIDOS = ["Gómez", "Rodríguez", "Martínez", "Hernández", "López", "González", "Pérez", "Sánchez", "Ramírez", "Torres", "Flórez", "Díaz", "Rojas", "Vargas", "Castillo", "Jiménez", "Moreno", "Ortiz", "Silva", "Cárdenas", "Pinzón", "Mantilla", "Rincón", "Barrera", "Cáceres", "Arenas", "Solano", "Villamizar", "Acevedo", "Duarte", "Ariza", "Pabón", "Gelvez", "Ardila", "Suárez", "Mejía", "Camargo", "Quintero", "Navas", "Prada"];
 
+/** Convierte un texto en un fragmento de correo: sin tildes, en minúsculas y con puntos entre palabras. */
 const sinTildes = (t) => t.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, ".").replace(/^\.|\.$/g, "");
+/** Correo de demostración «nombre.apellido@dominio»; si ya existe agrega un número para que sea único. */
 export const correoDemo = (nombres, apellidos, usados) => {
   const base = `${sinTildes(nombres.split(" ")[0])}.${sinTildes(apellidos.split(" ")[0])}`;
   let correo = `${base}@${DOMINIO_DEMO}`;

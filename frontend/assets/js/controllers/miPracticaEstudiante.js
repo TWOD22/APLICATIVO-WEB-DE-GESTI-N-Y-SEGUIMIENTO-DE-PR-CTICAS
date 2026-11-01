@@ -33,6 +33,7 @@ const ESTADO_DOC = {
   SIN_CARGAR: { texto: "Sin cargar", tono: "neutral" },
 };
 
+/** Fecha larga en español (ej. 12 de octubre de 2026); vacía si el valor no es una fecha. */
 const fechaLarga = (valor) => {
   const d = valor ? new Date(valor) : null;
   return d && !Number.isNaN(d.getTime()) ? d.toLocaleDateString("es-CO", { day: "2-digit", month: "long", year: "numeric" }) : "";
@@ -49,7 +50,9 @@ export async function montarMiPractica(ui) {
   if (new URLSearchParams(window.location.search).has("historial")) return false;
 
   const estado = { trayectoria: null, documentos: null, plazas: null, ocupado: false };
+  /** Texto de error legible para mostrar al usuario. */
   const mensaje = (error) => error?.message || "Ocurrió un error inesperado. Inténtalo de nuevo.";
+  /** HTML de un mensaje de error con botón para reintentar. */
   const errorHtml = (texto) => `<div class="practice-empty"><p class="form-error" role="alert">${escapar(texto)}</p><button class="btn btn-secondary" type="button" data-mp="reintentar">Reintentar</button></div>`;
 
   /** Pregunta antes de una acción. Devuelve una promesa con true (confirmó) o false (canceló). */
@@ -75,6 +78,7 @@ export async function montarMiPractica(ui) {
     return paso === 2 && docs?.resumen?.expediente_completo ? 3 : paso;
   }
 
+  /** Línea de tiempo de los 5 pasos de la práctica, con el paso actual resaltado. */
   function lineaDeTiempo(solicitud, docs) {
     const actual = pasoActual(solicitud, docs);
     return `<ol class="practice-steps" aria-label="Avance de tu práctica">${PASOS.map((p, i) => {
@@ -83,6 +87,7 @@ export async function montarMiPractica(ui) {
     }).join("")}</ol>`;
   }
 
+  /** Tarjeta con el recorrido del estudiante por los niveles de práctica (finalizado, en curso, en solicitud o pendiente). */
   function trayectoriaHtml(t) {
     const etiqueta = { FINALIZADA: ["Finalizada", "success"], EN_CURSO: ["En curso", "info"], EN_SOLICITUD: ["En solicitud", "info"], PENDIENTE: ["Pendiente", "neutral"] };
     const hayFinalizadas = t.niveles.some((n) => n.estado === "FINALIZADA");
@@ -95,6 +100,7 @@ export async function montarMiPractica(ui) {
       ${hayFinalizadas ? `<a class="btn-link" href="${pathFor("estudiante", "dashboard")}?historial=1">Ver mis prácticas anteriores y calificaciones →</a>` : ""}</article>`;
   }
 
+  /** Encabezado de la pantalla con título, texto y el periodo de la solicitud. */
   function encabezado(titulo, texto, solicitud) {
     return `<section class="welcome"><div><span class="eyebrow">Mi práctica</span><h2>${escapar(titulo)}</h2><p>${texto}</p></div>${solicitud ? badge(solicitud.periodo.codigo, "info") : ""}</section>${solicitud ? '<div data-guia-criterios></div>' : ""}`;
   }
@@ -149,6 +155,7 @@ export async function montarMiPractica(ui) {
       <small class="muted practice-hint">Dirección valida tu elección. Si no hay cupo o debe cambiarla, te avisará con el motivo.</small></article>`;
   }
 
+  /** Pantalla del paso «Documentos y plaza»: cuántos documentos obligatorios lleva cargados, la institución elegida y, si Dirección devolvió la solicitud, qué debe corregir. */
   function pantallaDocumentos(t, solicitud, docs) {
     const devuelta = solicitud.estado === "DEVUELTA";
     const obligatorios = docs.documentos.filter((d) => d.obligatorio);
@@ -211,6 +218,7 @@ export async function montarMiPractica(ui) {
     return `<label class="site-card ${marcada ? "selected" : ""}" data-site-text="${escapar(`${p.nombre} ${p.ciudad || ""} ${p.direccion || ""}`.toLowerCase())}"><input type="radio" name="plaza" value="${escapar(p.id)}" ${marcada ? "checked" : ""} /><span class="site-icon">${icon("building")}</span><span class="site-info"><strong>${escapar(p.nombre)}</strong><small>${escapar([p.ciudad, p.direccion].filter(Boolean).join(" · ") || "Sin dirección registrada")}</small></span>${elegida === p.id ? badge("Tu elección actual", "info") : ""}</label>`;
   }
 
+  /** Ventana con las instituciones activas y con convenio vigente para que el estudiante elija su plaza; Dirección la valida después. */
   async function abrirElegirPlaza() {
     const solicitud = estado.trayectoria?.solicitud_abierta;
     if (!solicitud) return;
@@ -291,6 +299,7 @@ export async function montarMiPractica(ui) {
     await cargar();
   }
 
+  /** Abre el selector de archivos y sube el PDF del documento. Valida formato PDF, que no esté vacío y el tamaño máximo del tipo. */
   async function subir(tipoId, requisitoId) {
     const solicitud = estado.trayectoria?.solicitud_abierta;
     const doc = estado.documentos?.documentos.find((d) => d.requisito_id === requisitoId);
@@ -312,6 +321,7 @@ export async function montarMiPractica(ui) {
     entrada.click();
   }
 
+  /** Abre el PDF de un documento en una pestaña nueva mediante una URL firmada y temporal. */
   async function ver(documentoId) {
     const ventana = window.open("", "_blank");
     try {

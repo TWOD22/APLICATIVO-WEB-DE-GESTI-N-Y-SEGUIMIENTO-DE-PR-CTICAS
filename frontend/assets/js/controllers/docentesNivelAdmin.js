@@ -12,9 +12,12 @@ export function montarDocentesNivel(ui) {
   const { badge, escapar, showToast } = ui;
   const pagina = document.querySelector(".page");
   const estado = { periodo: null, niveles: [], docentes: [], turno: 0 };
+  /** Texto de error legible para mostrar al usuario. */
   const mensaje = (error) => error?.message || "Ocurrió un error inesperado.";
+  /** Nombre completo del usuario (usa nombre_completo o nombres + apellidos). */
   const nombre = (u) => u.nombre_completo || `${u.nombres ?? ""} ${u.apellidos ?? ""}`.trim();
 
+  /** Trae los niveles con su docente actual y los docentes supervisores activos; luego pinta la tabla. */
   async function cargar() {
     const turno = ++estado.turno;
     pagina.innerHTML = `<p class="muted practice-empty">Cargando niveles…</p>`;
@@ -33,6 +36,7 @@ export function montarDocentesNivel(ui) {
     }
   }
 
+  /** Tabla de niveles con el docente de cada uno. Señala los niveles con estudiantes que aún no tienen docente. */
   function pintar() {
     const sinDocente = estado.niveles.filter((n) => !n.docente && n.estudiantes > 0).length;
     const filas = estado.niveles.map((n) => {
@@ -48,6 +52,7 @@ export function montarDocentesNivel(ui) {
   }
 
   pagina.addEventListener("click", (e) => { if (e.target.closest("[data-dn=reintentar]")) cargar(); });
+  /** Guarda de inmediato el docente elegido para el nivel; si falla, devuelve el valor anterior. */
   pagina.addEventListener("change", async (e) => {
     const select = e.target.closest("[data-dn-nivel]");
     if (!select) return;
