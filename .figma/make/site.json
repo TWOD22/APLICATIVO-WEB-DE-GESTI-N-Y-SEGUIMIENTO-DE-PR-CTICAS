@@ -1,5 +1,7 @@
 {
-  "description": "Streamline university internship management with a comprehensive platform for students, advisors, and administrators to track progress, submit documents, and evaluate performance.",
+  "title": "Prácticas Pedagógicas UDI",
+  "description": "Sistema de gestión y seguimiento de prácticas pedagógicas de la Licenciatura en Educación Infantil de la UDI.",
+  "language": "es",
   "robots": {
     "index": false
   },

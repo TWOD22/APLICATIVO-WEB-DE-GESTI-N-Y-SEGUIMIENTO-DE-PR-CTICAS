@@ -23,3 +23,6 @@ logs/
 # Respaldos y datos de demostración (contienen datos y correos: nunca al repositorio)
 respaldo*.sql
 demo-cuentas.md
+
+# Cache de Firebase Hosting
+.firebase/
