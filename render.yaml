@@ -1,4 +1,5 @@
 # Despliegue del backend en Render (plan gratuito). Se usa con: Render -> New -> Blueprint -> elegir este repositorio.
+# Dos servicios (arquitectura de dos quantum): practicas-udi-api (núcleo) y practicas-udi-notificaciones (quanta 2).
 # Las variables con sync:false las pide Render al crear el servicio (son secretos: no se escriben aquí).
 services:
   - type: web
@@ -37,4 +38,34 @@ services:
       - key: SUPABASE_SECRET_KEY
         sync: false
       - key: SUPABASE_STORAGE_BUCKET
+        sync: false
+      # Comunicación con el quantum 2. Solo se usan con EVENTS_MODE=outbox.
+      - key: NOTIFICATIONS_SERVICE_URL
+        sync: false
+      - key: EVENTS_SHARED_SECRET
+        sync: false
+
+  # Quantum 2: servicio de notificaciones y auditoría (base propia en Firestore de otro proyecto Firebase).
+  - type: web
+    name: practicas-udi-notificaciones
+    runtime: node
+    plan: free
+    region: virginia
+    rootDir: notifications-service
+    buildCommand: pnpm install --frozen-lockfile
+    startCommand: node src/server.js
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: NODE_ENV
+        value: production
+      - key: EVENTS_SHARED_SECRET
+        sync: false
+      - key: FIREBASE_PROJECT_ID
+        sync: false
+      - key: FIREBASE_CLIENT_EMAIL
+        sync: false
+      - key: FIREBASE_PRIVATE_KEY
         sync: false
