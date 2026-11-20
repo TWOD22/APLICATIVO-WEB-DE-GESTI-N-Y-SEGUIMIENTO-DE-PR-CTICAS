@@ -21,8 +21,10 @@ services:
         value: "1"
       - key: DATABASE_SSL
         value: "true"
+      # outbox = arquitectura de dos quantum: el núcleo publica eventos al servicio de notificaciones.
+      # Para volver al modo de un solo servicio basta cambiar el valor a direct.
       - key: EVENTS_MODE
-        value: direct
+        value: outbox
       - key: DATABASE_URL
         sync: false
       - key: FRONTEND_ORIGINS
